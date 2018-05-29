@@ -3,3 +3,4 @@
 /jieba_zhtw
 *.model
 *.h5
+*.js
