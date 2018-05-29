@@ -1,6 +1,7 @@
 /cut_posts
 /processed_posts
 /jieba_zhtw
+/tfjs
 *.model
 *.h5
 *.js
