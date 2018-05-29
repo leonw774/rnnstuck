@@ -1,0 +1,5 @@
+/cut_posts
+/processed_posts
+/jieba_zhtw
+*.model
+*.h5
