@@ -205,7 +205,7 @@ else :
     model.compile(loss = 'sparse_categorical_crossentropy', optimizer = optimizer, metrics = ['sparse_categorical_accuracy'])
 model.summary()
 model.fit_generator(generator = generate_batch_snetences(), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, shuffle = True, verbose = 1)
-model.save("rnn_stuck_model.h5")
+model.save("rnnstuck_model.h5")
 
 outfile = open("output.txt", "w+", encoding = "utf-8-sig")
 
