@@ -1,5 +1,6 @@
 ﻿import os
 import re
+import sys
 import numpy as np
 import jieba_zhtw as jb
 import random
@@ -199,7 +200,7 @@ else :
     optimizer = optimizers.RMSprop(lr = 0.001)
     model = Sequential()
     model.add(Embedding(input_dim = VOCAB_SIZE, output_dim = WORD_VEC_SIZE))
-    model.add(GRU(RNN_UNIT, return_sequences = True))
+    model.add(LSTM(RNN_UNIT, return_sequences = True))
     model.add(Dropout(0.2))
     model.add(Dense(VOCAB_SIZE, activation = "softmax"))
     model.compile(loss = 'sparse_categorical_crossentropy', optimizer = optimizer, metrics = ['sparse_categorical_accuracy'])
@@ -209,7 +210,7 @@ model.save("rnnstuck_model.h5")
 
 outfile = open("output.txt", "w+", encoding = "utf-8-sig")
 
-def add_noise(prediction, temperature = 1.0) :
+def sample(prediction, temperature = 1.0) :
     prediction = np.asarray(prediction).astype('float64')
     prediction = np.log(prediction) / temperature
     exp_preds = np.exp(prediction)
@@ -222,7 +223,7 @@ for out_i in range(OUTPUT_NUMBER) :
     for n in range(60) :
         y_test = model.predict(make_input_matrix(output_sentence))
         # we only need y_test[0, y_test.shape[1] - 1] because it tells the next missing word
-        y_test = add_noise(y_test[0, y_test.shape[1] - 1], temperature = 0.6)
+        y_test = sample(y_test[0, y_test.shape[1] - 1], temperature = 0.6)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
         if (output_sentence[-1] == '\n' and next_word == '\n') : continue
         output_sentence.append(next_word)
