@@ -4,6 +4,7 @@ from gensim.models import word2vec
 
 W2V_BY_EACH_WORD = False
 
+### VOCAB INDEX ###
 index_out = open("wordindex.js", "w+", encoding = 'utf-8-sig')
 if W2V_BY_EACH_WORD :
     model = word2vec.Word2Vec.load("myword2vec_by_word.model")
@@ -21,7 +22,25 @@ for i in range(model.wv.syn0.shape[0]) :
     else :
         index_out.write(", \"" + word + "\"")
 index_out.write("];")
+print("wordindex done")
 
+### VECTOR INDEX ###
+index_out = open("vectorindex.js", "w+", encoding = 'utf-8-sig')
+if W2V_BY_EACH_WORD :
+    model = word2vec.Word2Vec.load("myword2vec_by_word.model")
+else :
+    model = word2vec.Word2Vec.load("myword2vec_by_char.model")
+index_out.write("var VECTOR_INDEX = [")
+for i in range(model.wv.syn0.shape[0]) :
+    word = model.wv.index2word[i];
+    if i == 0 :
+        index_out.write("[" + ",".join(str(x) for x in model.wv[word]) + "]")
+    else :
+        index_out.write(", " + "[" + ",".join([str(x) for x in model.wv[word]]) + "]")
+index_out.write("];")
+print("vectorindex done")
+
+### SEED ###
 seed_out = open("seedindex.js", "w+", encoding = 'utf-8-sig')
 cut_posts_paths = glob.glob(r"cut_posts/*.txt")
 
