@@ -184,7 +184,7 @@ def make_label_matrix(word_list) :
     return label_matrix
 
 # make batch training data
-def generate_batch_snetences() :
+def generate_sentences() :
     epoch_count = 0
     while 1:
         for post in rnn_train_input :
@@ -204,20 +204,23 @@ print("\nUSE_SAVED_MODEL: ", USE_SAVED_MODEL, "\nRNN_UNIT: ", RNN_UNIT, "\nOUTPU
 if USE_SAVED_MODEL :
     model = load_model("rnnstuck_model.h5")
 else :
-    sgd = optimizers.SGD(lr = 0.005, momentum = 0.9, nesterov = True)
+    sgd = optimizers.SGD(lr = 0.01, momentum = 0.9, nesterov = True)
     rmsprop = optimizers.RMSprop(lr = 0.001)
     input = Input([None, WORD_VEC_SIZE])
-    lstm_out = LSTM(RNN_UNIT, input_shape = [None, WORD_VEC_SIZE], return_sequences = True)(input)
+    repersentation = LSTM(RNN_UNIT, input_shape = [None, WORD_VEC_SIZE], return_sequences = True)(input)
+    '''
+    ### Attention ###
     attention = TimeDistributed(Dense(1, activation = "softmax"))(lstm_out)
     attention = Lambda(lambda x: K.batch_flatten(x))(attention)
     attention = RepeatVector(RNN_UNIT)(attention)
     attention = Permute([2, 1])(attention)
     repersentation = multiply([lstm_out, attention])
+    '''
     probability = Dense(VOCAB_SIZE, activation = "softmax")(repersentation)
     model = Model(input, probability)
     model.compile(loss = 'sparse_categorical_crossentropy', optimizer = sgd, metrics = ["sparse_categorical_accuracy"])
 model.summary()
-model.fit_generator(generator = generate_batch_snetences(), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, shuffle = True, verbose = 1)
+model.fit_generator(generator = generate_sentences(), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, shuffle = True, verbose = 1)
 model.save("rnnstuck_model.h5")
 
 outfile = open("output.txt", "w+", encoding = "utf-8-sig")
