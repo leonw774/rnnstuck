@@ -2,7 +2,7 @@ import re
 import glob
 from gensim.models import word2vec
 
-W2V_BY_EACH_WORD = False
+W2V_BY_EACH_WORD = True
 
 ### VOCAB INDEX ###
 index_out = open("wordindex.js", "w+", encoding = 'utf-8-sig')

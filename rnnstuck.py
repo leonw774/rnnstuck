@@ -23,20 +23,20 @@ USE_ENDING_MARK = True
 ENDING_MARK = "<e>"
 
 MIN_COUNT = 4
-W2V_ITER = 12
+W2V_ITER = 10
 VOCAB_SIZE = -1
 
 SAMPLE_BEGIN = 0
 SAMPLE_END = 5420
-POST_LENGTH_MAX = 4000
-POST_LENGTH_MIN = 8
+POST_LENGTH_MAX = 3000
+POST_LENGTH_MIN = 6
 
 USE_SAVED_MODEL = False
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 WV_SIZE = 200
-RNN_UNIT = 32 # 1 core nvidia gt730 gpu: lstm(300) is limit
-EPOCHS = 4
-OUTPUT_NUMBER = 80
+RNN_UNIT = 72 # 1 core nvidia gt730 gpu: lstm(300) is limit
+EPOCHS = 64
+OUTPUT_NUMBER = 50
 # 4000 sample +
 # W2V_BY_EACH_WORD = True +
 # 100 unit lstm +
@@ -81,7 +81,7 @@ for count, postname in enumerate(POSTNAME_LIST[SAMPLE_BEGIN : SAMPLE_END]) :
         line_list = open(PROC_PATH + postname, 'r', encoding = 'utf-8-sig').readlines()
         
     # if this post has only one line : ignore
-    if len(line_list) == 1 and random.randint(0, 4) <= 3 :
+    if len(line_list) == 1 and random.randint(0, 10) <= 9 :
         continue
         
     # get words from this post
@@ -101,7 +101,7 @@ for count, postname in enumerate(POSTNAME_LIST[SAMPLE_BEGIN : SAMPLE_END]) :
             break
         
     # if this post is too short : ignore
-    if len(post_word_list) < POST_LENGTH_MIN and random.randint(0, 4) <= 3 :
+    if len(post_word_list) < POST_LENGTH_MIN and random.randint(0, 10) <= 9 :
         continue
     # put ending character at the end of a post
     if USE_ENDING_MARK :
@@ -188,14 +188,13 @@ print("\nUSE_SAVED_MODEL: ", USE_SAVED_MODEL, "\nRNN_UNIT: ", RNN_UNIT, "\nOUTPU
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
 else :
-    sgd = optimizers.SGD(lr = 0.01, momentum = 0.5, nesterov = True)
-    rmsprop = optimizers.RMSprop(lr = 0.001)
+    sgd = optimizers.SGD(lr = 0.1, momentum = 0.9, nesterov = True, decay = 0.0001)
     model = Sequential()
     model.add(LSTM(RNN_UNIT, input_shape = [None, WV_SIZE], return_sequences = True))
     model.add(Dense(VOCAB_SIZE, activation = "softmax"))
     model.compile(loss = 'sparse_categorical_crossentropy', optimizer = sgd, metrics = ["sparse_categorical_accuracy"])
 model.summary()
-model.fit_generator(generator = generate_sentences(), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, shuffle = True, verbose = 1)
+model.fit_generator(generator = generate_sentences(), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, shuffle = False, verbose = 1)
 model.save(SAVE_MODEL_NAME)
 
 outfile = open("output.txt", "w+", encoding = "utf-8-sig")
@@ -213,9 +212,9 @@ for out_i in range(OUTPUT_NUMBER) :
     for n in range(60) :
         y_test = model.predict(make_input_matrix(output_sentence))
         # we only need y_test[0, y_test.shape[1] - 1] because it tells the next missing word
-        y_test = sample(y_test[0, y_test.shape[1] - 1], temperature = 0.6)
+        y_test = sample(y_test[0, y_test.shape[1] - 1], temperature = 0.9)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
-        if next_word == ENDING_MARK : continue
+        if next_word == ENDING_MARK : break
         output_sentence.append(next_word)
     if out_i % 10 == 0 : print("i:", out_i)
     output_sentence.append("\n\n")
