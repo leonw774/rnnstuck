@@ -2,14 +2,14 @@ import re
 import glob
 from gensim.models import word2vec
 
-W2V_BY_EACH_WORD = False
-
-### VOCAB INDEX ###
-index_out = open("wordindex.js", "w+", encoding = 'utf-8-sig')
+W2V_BY_EACH_WORD = True
 if W2V_BY_EACH_WORD :
     model = word2vec.Word2Vec.load("myword2vec_by_word.model")
 else :
     model = word2vec.Word2Vec.load("myword2vec_by_char.model")
+    
+### VOCAB INDEX ###
+index_out = open("wordindex.js", "w+", encoding = 'utf-8-sig')
 index_out.write("var WORD_INDEX = [")
 for i in range(model.wv.syn0.shape[0]) :
     word = model.wv.index2word[i];
@@ -26,10 +26,6 @@ print("wordindex done")
 
 ### VECTOR INDEX ###
 index_out = open("vectorindex.js", "w+", encoding = 'utf-8-sig')
-if W2V_BY_EACH_WORD :
-    model = word2vec.Word2Vec.load("myword2vec_by_word.model")
-else :
-    model = word2vec.Word2Vec.load("myword2vec_by_char.model")
 index_out.write("var VECTOR_INDEX = [")
 for i in range(model.wv.syn0.shape[0]) :
     word = model.wv.index2word[i];
