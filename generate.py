@@ -44,15 +44,16 @@ def sample(prediction, temperature = 1.0) :
 
 for out_i in range(OUTPUT_NUMBER) :
     output_sentence = [] # zero vector
-    for n in range(60) :
+    for n in range(120) :
         y_test = model.predict(make_input_matrix(output_sentence))
         # we only need y_test[0, y_test.shape[1] - 1] because it tells the next missing word
         y_test = sample(y_test[0, y_test.shape[1] - 1], temperature = 0.9)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
-        if next_word == ENDING_MARK : continue
+        if next_word == ENDING_MARK :
+            break
+        if next_word == '\n' and output_sentence[-1] == '\n' : continue
         output_sentence.append(next_word)
-    if out_i % 10 == 0 : print("i:", out_i)
-    output_sentence.append("\n")
+    output_sentence.append("\n\n")
     output_string = ""
     for word in output_sentence :
         output_string += word

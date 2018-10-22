@@ -28,13 +28,13 @@ VOCAB_SIZE = -1
 
 SAMPLE_BEGIN = 0
 SAMPLE_END = 5420
-POST_LENGTH_MAX = 3000
+POST_LENGTH_MAX = 2700
 POST_LENGTH_MIN = 6
 
-USE_SAVED_MODEL = False
+USE_SAVED_MODEL = True
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 WV_SIZE = 200
-RNN_UNIT = 72 # 1 core nvidia gt730 gpu: lstm(300) is limit
+RNN_UNIT = 32 # 1 core nvidia gt730 gpu: lstm(300) is limit
 EPOCHS = 64
 OUTPUT_NUMBER = 50
 # 4000 sample +
@@ -65,7 +65,7 @@ if CREATE_NEW_JIEBA :
         jieba_in_string = open(PROC_PATH + postname, 'r', encoding = "utf-8-sig").read() 
         cut_post = jb.cut(jieba_in_string, cut_all = False)
         open(CUT_PATH + postname, 'w+', encoding = 'utf-8-sig').write(" ".join(cut_post))  
-### JIEBA ###
+### END JIEBA ###
 
 print("\nW2V_BY_EACH_WORD: ", W2V_BY_EACH_WORD, "\nCREATE_NEW_W2V: ", CREATE_NEW_W2V, "\niter: ", W2V_ITER)
 
@@ -110,6 +110,7 @@ for count, postname in enumerate(POSTNAME_LIST[SAMPLE_BEGIN : SAMPLE_END]) :
         else :
             post_word_list += ENDING_MARK
     rnn_train_input.append(post_word_list)  
+random.shuffle(rnn_train_input)
 # end for
 
 if not CREATE_NEW_W2V :
@@ -135,7 +136,7 @@ print("\ntotal_word_count: ", total_word_count)
 print("\nvector size: ", WV_SIZE, "\nvocab size: ", VOCAB_SIZE)
 print(word_vector.most_similar("貓", topn = 10))
 #for i in range(0, 10) : print(rnn_train_input[i])
-### PREPARE TRAINING DATA ###
+### END PREPARE TRAINING DATA ###
 
 def make_input_matrix(word_list) :
     input_matrix = np.zeros([1, len(word_list) + 1, WV_SIZE])
@@ -143,13 +144,15 @@ def make_input_matrix(word_list) :
     for word in word_list :
         try :
             input_matrix[0, i] = word_vector[word]
+            i += 1
         except KeyError :
             for c in word :
                 try :
                     input_matrix[0, i] = word_vector[word]
+                    i += 1
                 except KeyError :
                     continue
-        i += 1
+
     return input_matrix
     
 def make_label_matrix(word_list) :
@@ -158,26 +161,30 @@ def make_label_matrix(word_list) :
     for word in word_list :
         try :
             label_matrix[0, i, 0] = word_vector.vocab[word].index # because sparse_categorical
+            i += 1
         except KeyError :
             for c in word :
                 try :
                     label_matrix[0, i, 0] = word_vector.vocab[word].index
+                    i += 1
                 except KeyError :
-                    continue
-        i += 1
+                    continue    
     return label_matrix
+
+x_train_list = []
+y_train_list = []
+for post in rnn_train_input :
+    x_train_list.append(make_input_matrix(post))
+    y_train_list.append(make_label_matrix(post))
 
 # make batch training data
 def generate_sentences() :
-    epoch_count = 0
+    i = 0
+    l = len(rnn_train_input)
     while 1:
-        for post in rnn_train_input :
-            x_train = make_input_matrix(post)
-            y_train = make_label_matrix(post)
-            #print('\nx.shape: ', x_train.shape, 'y.shape: ', y_train.shape)
-            #print('y: ', y_train)
-            yield x_train, y_train
-        epoch_count += 1
+        yield x_train_list[i], y_train_list[i]
+        i += 1
+        if i >= l : i = 0
 
 def sparse_categorical_perplexity(y_true, y_pred) :
     return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
@@ -188,13 +195,14 @@ print("\nUSE_SAVED_MODEL: ", USE_SAVED_MODEL, "\nRNN_UNIT: ", RNN_UNIT, "\nOUTPU
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
 else :
-    sgd = optimizers.SGD(lr = 0.1, momentum = 0.9, nesterov = True, decay = 0.0001)
+    sgd = optimizers.SGD(lr = 0.1, momentum = 0.9, nesterov = True, decay = 1e-4)
+    adam = optimizers.Adam(lr = 0.001)
     model = Sequential()
     model.add(LSTM(RNN_UNIT, input_shape = [None, WV_SIZE], return_sequences = True))
     model.add(Dense(VOCAB_SIZE, activation = "softmax"))
     model.compile(loss = 'sparse_categorical_crossentropy', optimizer = sgd, metrics = ["sparse_categorical_accuracy"])
 model.summary()
-model.fit_generator(generator = generate_sentences(), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, shuffle = False, verbose = 1)
+model.fit_generator(generator = generate_sentences(), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, verbose = 1)
 model.save(SAVE_MODEL_NAME)
 
 outfile = open("output.txt", "w+", encoding = "utf-8-sig")
@@ -209,18 +217,19 @@ def sample(prediction, temperature = 1.0) :
 
 for out_i in range(OUTPUT_NUMBER) :
     output_sentence = [] # zero vector
-    for n in range(60) :
+    for n in range(120) :
         y_test = model.predict(make_input_matrix(output_sentence))
         # we only need y_test[0, y_test.shape[1] - 1] because it tells the next missing word
-        y_test = sample(y_test[0, y_test.shape[1] - 1], temperature = 0.9)
+        y_test = sample(y_test[0, y_test.shape[1] - 1], temperature = 0.6)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
         if next_word == ENDING_MARK : break
+        if next_word == '\n' and output_sentence[-1] == '\n' : continue
         output_sentence.append(next_word)
-    if out_i % 10 == 0 : print("i:", out_i)
     output_sentence.append("\n\n")
     output_string = ""
     for word in output_sentence :
         output_string += word
     outfile.write(output_string)
+    outfile.write("{out_i}\n")
 outfile.close()
 
