@@ -84,7 +84,7 @@ def tag_remover(post_string) :
     return result
 # end def tag_remover
 
-WRITE_BLOG_RAW = True
+WRITE_BLOG_RAW = False
 blog_raw = open("blog-raw.txt",  'w+',  encoding = 'utf-8-sig')
 post_string = ""
 for file_i, filename in enumerate(filename_list) :

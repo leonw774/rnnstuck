@@ -2,7 +2,6 @@
 import re
 import sys
 import numpy as np
-import jieba_zhtw as jb
 import random
 import h5py
 from keras import optimizers
@@ -20,8 +19,6 @@ W2V_BY_EACH_WORD = False # False: Create w2v model by each character
 USE_ENDING_MARK = True
 ENDING_MARK_WORD = "<e>"
 ENDING_MARK_CHAR = '\0'
-
-CREATE_NEW_JIEBA = False
 CREATE_NEW_W2V = False
 
 MIN_COUNT = 4
@@ -59,17 +56,6 @@ for filename in os.listdir(PROC_PATH) :
     POSTNAME_LIST.append(filename)
 POSTNAME_LIST = sorted(POSTNAME_LIST, key = sorting_file_name)
 
-### JIEBA ###
-print("CREATE_NEW_JIEBA: ", CREATE_NEW_JIEBA)
-if CREATE_NEW_JIEBA :
-    jb.dt.cache_file = 'jieba.cache.zhtw'
-    jb.load_userdict('hs_dict.dict')
-    for postname in POSTNAME_LIST :
-        jieba_in_string = open(PROC_PATH + postname, 'r', encoding = "utf-8-sig").read() 
-        cut_post = jb.cut(jieba_in_string, cut_all = False)
-        open(CUT_PATH + postname, 'w+', encoding = 'utf-8-sig').write(" ".join(cut_post))  
-### END JIEBA ###
-
 print("\nW2V_BY_EACH_WORD: ", W2V_BY_EACH_WORD, "\nCREATE_NEW_W2V: ", CREATE_NEW_W2V, "\niter: ", W2V_ITER)
 
 ### PREPARE TRAINING DATA ###
@@ -84,16 +70,14 @@ for count, postname in enumerate(POSTNAME_LIST[SAMPLE_BEGIN : SAMPLE_END]) :
         line_list = open(PROC_PATH + postname, 'r', encoding = 'utf-8-sig').readlines()
         
     # if this post has only one line : ignore
-    if len(line_list) == 1 and random.randint(0, 10) <= 9 :
+    if len(line_list) == 1 and random.randint(0, 32) == 0 :
         continue
         
     # get words from this post
     post_word_list = []
     for i, line in enumerate(line_list) :
-        line = re.sub("= = = = = = >", "======>", line)
-        line = re.sub("= = >", "==>", line)
         
-        if W2V_BY_EACH_WORD : line = re.sub(r" +", " ", line).split() + ["\n"]
+        if W2V_BY_EACH_WORD : line = line.split() + ["\n"]
         else : line += "\n"
         
         w2v_train_list.append(line)
