@@ -5,12 +5,12 @@ import numpy as np
 from keras.models import load_model
 from gensim.models import word2vec
 
-OUTPUT_NUMBER = 10
+OUTPUT_NUMBER = 8
 
 ENDING_MARK_WORD = "<e>"
 ENDING_MARK_CHAR = '\0'
 
-W2V_BY_EACH_WORD = False
+W2V_BY_EACH_WORD = True
 model = load_model("rnnstuck_model.h5")
 outfile = open("output-generate.txt", "w+", encoding = "utf-8-sig")
 
@@ -49,11 +49,13 @@ for out_i in range(OUTPUT_NUMBER) :
     for n in range(120) :
         y_test = model.predict(make_input_matrix(output_sentence))
         # we only need y_test[0, -1] because it tells the next missing word
-        y_test = sample(y_test[0], temperature = 0.8)
+        y_test = sample(y_test[0, -1], 0.75)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
         if next_word == ENDING_MARK_WORD or next_word == ENDING_MARK_CHAR : break
         if next_word == '\n' :
-            if len(output_sentence) <= 1 or output_sentence[-1] == '\n' : continue
+            if len(output_sentence) == 0 or output_sentence[-1] == '\n' :
+                n += 1
+                continue
         output_sentence.append(next_word)
     output_sentence.append("\n\n")
     output_string = ""

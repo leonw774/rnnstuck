@@ -15,27 +15,27 @@ from gensim.models import word2vec
 PROC_PATH = "processed_posts/"
 CUT_PATH = "cut_posts/"
 
-W2V_BY_EACH_WORD = False # False: Create w2v model by each character
+W2V_BY_EACH_WORD = True # False: Create w2v model by each character
 USE_ENDING_MARK = True
 ENDING_MARK_WORD = "<e>"
 ENDING_MARK_CHAR = '\0'
 CREATE_NEW_W2V = False
 
 MIN_COUNT = 4
-W2V_ITER = 10
+W2V_ITER = 6
 VOCAB_SIZE = -1
 
 SAMPLE_BEGIN = 0
 SAMPLE_END = 5420
-POST_LENGTH_MAX = 2750
-POST_LENGTH_MIN = 5
+POST_LENGTH_MAX = 3000
+POST_LENGTH_MIN = 3
 
 USE_SAVED_MODEL = False
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 WV_SIZE = 200
-RNN_UNIT = 64 # 1 core nvidia gt730 gpu: lstm(300) is limit
-BATCH_SIZE = 8
-EPOCHS = 1000 # (POST_LENGTH_MAX + POST_LENGTH_MIN) // 2
+RNN_UNIT = 48 # 1 core nvidia gt730 gpu: lstm(300) is limit
+BATCH_SIZE = 16
+EPOCHS = 64 # (POST_LENGTH_MAX + POST_LENGTH_MIN) // 2
 OUTPUT_NUMBER = 20
 # 4000 sample +
 # W2V_BY_EACH_WORD = True +
@@ -69,16 +69,15 @@ for count, postname in enumerate(POSTNAME_LIST[SAMPLE_BEGIN : SAMPLE_END]) :
     else :
         line_list = open(PROC_PATH + postname, 'r', encoding = 'utf-8-sig').readlines()
         
-    # if this post has only one line : ignore
-    if len(line_list) == 1 and random.randint(0, 32) == 0 :
-        continue
-        
     # get words from this post
     post_word_list = []
     for i, line in enumerate(line_list) :
-        
-        if W2V_BY_EACH_WORD : line = line.split() + ["\n"]
-        else : line += "\n"
+        line = re.sub("= = = = = = >", "======>", line)
+        line = re.sub("= = >", "==>", line)
+        line = re.sub(r" +", " ", line)
+    
+        if line == "\n" : continue 
+        if W2V_BY_EACH_WORD : line = line.split() + ['\n']
         
         w2v_train_list.append(line)
         total_word_count += len(line)
@@ -86,10 +85,10 @@ for count, postname in enumerate(POSTNAME_LIST[SAMPLE_BEGIN : SAMPLE_END]) :
         
         if len(post_word_list) > POST_LENGTH_MAX :
             break
-        
+    
     # if this post is too short : ignore
-    if len(post_word_list) < POST_LENGTH_MIN and random.randint(0, 10) <= 9 :
-        continue
+    if len(post_word_list) < POST_LENGTH_MIN and random.randint(0, 4) > 0 :
+        continue    
     # put ending character at the end of a post
     if USE_ENDING_MARK :
         if W2V_BY_EACH_WORD :
@@ -145,16 +144,16 @@ def make_input_matrix(word_list) :
     return input_matrix
     
 def make_label_matrix(word_list) :
-    label_matrix = np.zeros([1, len(word_list) + 1], dtype=np.int32)
+    label_matrix = np.zeros([1, len(word_list) + 1, 1], dtype=np.int32)
     i = 0
     for word in word_list :
         try :
-            label_matrix[0, i] = word_vector.vocab[word].index # because sparse_categorical
+            label_matrix[0, i, 0] = word_vector.vocab[word].index # because sparse_categorical
             i += 1
         except KeyError :
             for c in word :
                 try :
-                    label_matrix[0, i] = word_vector.vocab[word].index
+                    label_matrix[0, i, 0] = word_vector.vocab[word].index
                     i += 1
                 except KeyError :
                     continue    
@@ -174,12 +173,11 @@ def generate_sentences(batch_size = 1) :
         seq_length = POST_LENGTH_MAX
         for n in post_nums :
             seq_length = min(seq_length, x_train_list[n].shape[1])
-        seq_length = random.randint(POST_LENGTH_MIN, seq_length)
         x = np.zeros((batch_size, seq_length, WV_SIZE))
-        y = np.zeros((batch_size, 1))
+        y = np.zeros((batch_size, seq_length, 1))
         for i, n in enumerate(post_nums) :
-            x[i] = x_train_list[n][:, : seq_length]
-            y[i] = y_train_list[n][:, seq_length - 1]
+            x[i] = x_train_list[n][:, : seq_length] # index 0 to seq_length -1 
+            y[i] = y_train_list[n][:, : seq_length]
         #print(x.shape, y.shape) 
         yield x, y
 
@@ -192,19 +190,20 @@ print("\nUSE_SAVED_MODEL: ", USE_SAVED_MODEL, "\nRNN_UNIT: ", RNN_UNIT, "\nbatch
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
 else :
-    sgd = optimizers.SGD(lr = 0.005, momentum = 0.5, nesterov = True, decay = 1e-4)
-    rmsprop = optimizers.RMSprop(lr = 0.001, decay = 1e-4)
-    adam = optimizers.Adam(lr = 0.001)
+    sgd = optimizers.SGD(lr = 0.01, momentum = 0.5, nesterov = True, decay = 1e-2)
+    rmsprop = optimizers.RMSprop(lr = 0.001, decay = 2e-2)
+    adam = optimizers.Adam(lr = 0.001, decay = 1e-2)
     
     ## make model
     model = Sequential()
-    model.add(LSTM(RNN_UNIT, input_shape=(None, WV_SIZE), return_sequences = False))
+    model.add(LSTM(RNN_UNIT, input_shape=(None, WV_SIZE), return_sequences = True))
+    model.add(Dropout(0.2))
     model.add(Dense(VOCAB_SIZE, activation = "softmax"))
-    model.compile(loss = 'sparse_categorical_crossentropy', optimizer = sgd, metrics = ["sparse_categorical_accuracy"])
+    model.compile(loss = 'sparse_categorical_crossentropy', optimizer = rmsprop, metrics = ["sparse_categorical_accuracy"])
     
 model.summary()
 
-model.fit_generator(generator = generate_sentences(batch_size = BATCH_SIZE), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, verbose = 1)
+model.fit_generator(generator = generate_sentences(batch_size = BATCH_SIZE), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, verbose = 1 validation_split)
 model.save(SAVE_MODEL_NAME)
 
 outfile = open("output.txt", "w+", encoding = "utf-8-sig")
@@ -219,15 +218,17 @@ def sample(prediction, temperature = 1.0) :
 
 for out_i in range(OUTPUT_NUMBER) :
     output_sentence = [] # zero vector
-    for n in range(100) :
+    output_sentence += random.choice(rnn_train_input)[0]
+    for n in range(120) :
         y_test = model.predict(make_input_matrix(output_sentence))
-        y_test = sample(y_test[0])
+        y_test = sample(y_test[0, -1], 0.75)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
         if next_word == ENDING_MARK_WORD or next_word == ENDING_MARK_CHAR : break
         if next_word == '\n' :
             if len(output_sentence) == 0 or output_sentence[-1] == '\n' :
                 n += 1
                 continue
+                
         output_sentence.append(next_word)
     output_sentence.append("\n\n")
     output_string = ""

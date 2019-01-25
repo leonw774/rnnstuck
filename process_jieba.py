@@ -24,12 +24,7 @@ jb.dt.cache_file = 'jieba.cache.zhtw'
 jb.load_userdict('hs_dict.dict')
 for postname in POSTNAME_LIST :
     jieba_in_string = open(PROC_PATH + postname, 'r', encoding = "utf-8-sig").read() 
+    jieba_in_string = re.sub(r" +", " ", jieba_in_string)
     cut_post = jb.cut(jieba_in_string, cut_all = False)
-    cut_string = " ".join(cut_post)
-    cut_string = re.sub("[ S ]", "[S]", cut_string)
-    cut_string = re.sub("[o]", "[o]", cut_string)
-    cut_string = re.sub("= = = = = = >", "======>", cut_string)
-    cut_string = re.sub("= = >", "==>", cut_string)
-    cut_string = re.sub(r" +", " ", cut_string)
-    open(CUT_PATH + postname, 'w+', encoding = 'utf-8-sig').write(cut_string)
+    open(CUT_PATH + postname, 'w+', encoding = 'utf-8-sig').write(" ".join(cut_post))
 ### END JIEBA ###
