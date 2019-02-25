@@ -2,19 +2,20 @@ import os
 import random
 import h5py
 import numpy as np
+import process_w2v_model as w2v_paras
 from keras.models import load_model
 from gensim.models import word2vec
 
 OUTPUT_NUMBER = 8
+PAGE_LENGTH = 16 # set None to be varifyed length
 
 ENDING_MARK_WORD = "<e>"
 ENDING_MARK_CHAR = '\0'
 
-W2V_BY_EACH_WORD = True
 model = load_model("rnnstuck_model.h5")
 outfile = open("output-generate.txt", "w+", encoding = "utf-8-sig")
 
-if W2V_BY_EACH_WORD : word_model = word2vec.Word2Vec.load("myword2vec_by_word.model")
+if w2v_paras.W2V_BY_VOCAB : word_model = word2vec.Word2Vec.load("myword2vec_by_word.model")
 else : word_model = word2vec.Word2Vec.load("myword2vec_by_char.model")
 word_vector = word_model.wv
 del word_model
@@ -47,17 +48,22 @@ def sample(prediction, temperature = 1.0) :
 for out_i in range(OUTPUT_NUMBER) :
     output_sentence = [] # zero vector
     for n in range(120) :
-        y_test = model.predict(make_input_matrix(output_sentence))
-        # we only need y_test[0, -1] because it tells the next missing word
-        y_test = sample(y_test[0, -1], 0.6)
+        input_array = make_input_matrix(output_sentence)
+        if PAGE_LENGTH :
+            if input_array.shape[1] > PAGE_LENGTH :
+                adjust_input_array = input_array[:, -PAGE_LENGTH :]
+            else :
+                adjust_input_array = np.zeros([1, PAGE_LENGTH, w2v_paras.WV_SIZE])
+                adjust_input_array[:, : input_array.shape[1]] = input_array
+            y_test = model.predict(adjust_input_array)
+            y_test = sample(y_test[0], 0.7)
+        else :
+            y_test = model.predict(input_array)
+            y_test = sample(y_test[0, -1], 0.7)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
-        if next_word == ENDING_MARK_WORD or next_word == ENDING_MARK_CHAR : break
-        if next_word == '\n' :
-            if len(output_sentence) == 0 or output_sentence[-1] == '\n' :
-                n += 1
-                continue
         output_sentence.append(next_word)
-    output_sentence.append("\n\n")
+        if next_word == w2v_paras.ENDING_MARK_WORD or next_word == w2v_paras.ENDING_MARK_CHAR : break
+    output_sentence.append(">>>>>>>>\n")
     output_string = ""
     for word in output_sentence :
         output_string += word

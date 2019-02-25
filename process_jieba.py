@@ -25,6 +25,10 @@ jb.load_userdict('hs_dict.dict')
 for postname in POSTNAME_LIST :
     jieba_in_string = open(PROC_PATH + postname, 'r', encoding = "utf-8-sig").read() 
     jieba_in_string = re.sub(r" +", " ", jieba_in_string)
-    cut_post = jb.cut(jieba_in_string, cut_all = False)
-    open(CUT_PATH + postname, 'w+', encoding = 'utf-8-sig').write(" ".join(cut_post))
+    cut_post_list = jb.cut(jieba_in_string, cut_all = False)
+    cut_post_string = " ".join(cut_post_list)
+    cut_post_string = re.sub("= = = = = = >", "======>", cut_post_string)
+    cut_post_string = re.sub("= = >", "==>", cut_post_string)
+    cut_post_string = re.sub(r" +", " ", cut_post_string)
+    open(CUT_PATH + postname, 'w+', encoding = 'utf-8-sig').write(cut_post_string)
 ### END JIEBA ###
