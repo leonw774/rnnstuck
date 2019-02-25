@@ -21,7 +21,7 @@ ENDING_MARK_WORD = "<e>"
 ENDING_MARK_CHAR = '\0'
 CREATE_NEW_W2V = False
 
-MIN_COUNT = 4
+MIN_COUNT = 5
 W2V_ITER = 6
 VOCAB_SIZE = -1
 
@@ -33,10 +33,10 @@ POST_LENGTH_MIN = 3
 USE_SAVED_MODEL = False
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 WV_SIZE = 200
-RNN_UNIT = 48 # 1 core nvidia gt730 gpu: lstm(300) is limit
-BATCH_SIZE = 16
-EPOCHS = 64 # (POST_LENGTH_MAX + POST_LENGTH_MIN) // 2
-OUTPUT_NUMBER = 20
+RNN_UNIT = 36 # 1 core nvidia gt730 gpu: lstm(300) is limit
+BATCH_SIZE = 64
+EPOCHS = 100 # (POST_LENGTH_MAX + POST_LENGTH_MIN) // 2
+OUTPUT_NUMBER = 10
 # 4000 sample +
 # W2V_BY_EACH_WORD = True +
 # 100 unit lstm +
@@ -118,6 +118,7 @@ if CREATE_NEW_W2V :
 
 word_vector = word_model.wv
 VOCAB_SIZE = word_vector.syn0.shape[0]
+STEP_PER_EPOCH = total_word_count / BATCH_SIZE
 del word_model
 
 print("\ntotal_word_count: ", total_word_count)
@@ -190,9 +191,9 @@ print("\nUSE_SAVED_MODEL: ", USE_SAVED_MODEL, "\nRNN_UNIT: ", RNN_UNIT, "\nbatch
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
 else :
-    sgd = optimizers.SGD(lr = 0.01, momentum = 0.5, nesterov = True, decay = 1e-2)
-    rmsprop = optimizers.RMSprop(lr = 0.001, decay = 2e-2)
-    adam = optimizers.Adam(lr = 0.001, decay = 1e-2)
+    sgd = optimizers.SGD(lr = 0.1, momentum = 0.5, nesterov = True, decay = (1/STEP_PER_EPOCH))
+    rmsprop = optimizers.RMSprop(lr = 0.01, decay = (1/STEP_PER_EPOCH))
+    adam = optimizers.Adam(lr = 0.001, decay = (1/STEP_PER_EPOCH))
     
     ## make model
     model = Sequential()
@@ -203,7 +204,12 @@ else :
     
 model.summary()
 
-model.fit_generator(generator = generate_sentences(batch_size = BATCH_SIZE), steps_per_epoch = len(rnn_train_input), epochs = EPOCHS, verbose = 1 validation_split)
+model.fit_generator(generator = generate_sentences(batch_size = BATCH_SIZE),
+                    steps_per_epoch = STEP_PER_EPOCH, 
+                    epochs = EPOCHS, 
+                    verbose = 1,
+                    validation_data = generate_sentences(batch_size = OUTPUT_NUMBER), 
+                    validation_steps = 1)
 model.save(SAVE_MODEL_NAME)
 
 outfile = open("output.txt", "w+", encoding = "utf-8-sig")
@@ -221,7 +227,7 @@ for out_i in range(OUTPUT_NUMBER) :
     output_sentence += random.choice(rnn_train_input)[0]
     for n in range(120) :
         y_test = model.predict(make_input_matrix(output_sentence))
-        y_test = sample(y_test[0, -1], 0.75)
+        y_test = sample(y_test[0, -1], 0.7)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
         if next_word == ENDING_MARK_WORD or next_word == ENDING_MARK_CHAR : break
         if next_word == '\n' :

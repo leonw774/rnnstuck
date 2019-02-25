@@ -49,7 +49,7 @@ for out_i in range(OUTPUT_NUMBER) :
     for n in range(120) :
         y_test = model.predict(make_input_matrix(output_sentence))
         # we only need y_test[0, -1] because it tells the next missing word
-        y_test = sample(y_test[0, -1], 0.75)
+        y_test = sample(y_test[0, -1], 0.6)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]
         if next_word == ENDING_MARK_WORD or next_word == ENDING_MARK_CHAR : break
         if next_word == '\n' :
