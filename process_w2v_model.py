@@ -27,12 +27,8 @@ USE_ENDING_MARK = True
 ENDING_MARK_WORD = "<e>"
 ENDING_MARK_CHAR = '\0'
 
-PAGE_LENGTH_MAX = 3000
-PAGE_LENGTH_MIN = 3
-PAGE_LENGTH_AVG = 100
-
 PAGE_BEGIN = 0
-PAGE_END = 5420
+PAGE_END = 5500
 
 W2V_MIN_COUNT = 5
 W2V_ITER = 6
@@ -58,12 +54,9 @@ def make_new_w2v() :
             
             total_word_count += len(line)
             this_page_word_list += line
-            
-            if len(this_page_word_list) > PAGE_LENGTH_MAX :
-                break
         
         # if this page is too short : ignore
-        if len(this_page_word_list) < PAGE_LENGTH_MIN :
+        if len(this_page_word_list) < 3 :
             continue    
         # put ending character at the end of a page
         if USE_ENDING_MARK :
