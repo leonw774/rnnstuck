@@ -22,12 +22,15 @@ def get_pagename_list(path) :
 
 PAGENAME_LIST = get_pagename_list(PROC_PATH)
 
-W2V_BY_VOCAB = True # False: Create w2v model by each character
-USE_ENDING_MARK = True
-ENDING_MARK_WORD = "<e>"
-ENDING_MARK_CHAR = '\0'
+W2V_BY_VOCAB = True # if False: Create w2v model by each character
 
-W2V_MIN_COUNT = 6
+START_MARK = 'š'
+
+USE_ENDING_MARK = True
+ENDING_MARK = "ê"
+
+W2V_MIN_COUNT_BY_VOCAB = 6
+W2V_MIN_COUNT_BY_CHAR = 3
 W2V_ITER = 6
 WV_SIZE = 200
 
@@ -44,31 +47,32 @@ def make_new_w2v() :
             line_list = open(PROC_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()
             
         # get words from this page
-        this_page_word_list = []
+        if W2V_BY_VOCAB :
+            this_page_words = [START_MARK]
+        else :
+            this_page_words = START_MARK
         for i, line in enumerate(line_list) :
-        
             if re.match(r"[\s\.\-/]{4,}", line) : continue # ignore morse code
+            if re.match(r"hstwproject", line) : continue
             if line == "\n" : continue 
             if W2V_BY_VOCAB : line = line.split() + ['\n']
-            
-            total_word_count += len(line)
-            this_page_word_list += line
-        
+            this_page_words += line
         # if this page is too short : ignore
-        if len(this_page_word_list) < 3 :
-            continue    
+        if len(this_page_words) < 3 :
+            continue
+        total_word_count += len(this_page_words)
         # put ending character at the end of a page
         if USE_ENDING_MARK :
             if W2V_BY_VOCAB :
-                this_page_word_list.append(ENDING_MARK_WORD)
+                this_page_words += [ENDING_MARK]
             else :
-                this_page_word_list += ENDING_MARK_CHAR
-        page_list.append(this_page_word_list)
+                this_page_words += ENDING_MARK
+        page_list.append(this_page_words)
     
     print("total word count:", total_word_count)
 
     word_model_name = "myword2vec_by_word.model" if W2V_BY_VOCAB else "myword2vec_by_char.model"
-    word_model = word2vec.Word2Vec(page_list, iter = W2V_ITER, sg = 1, size = WV_SIZE, window = 6, workers = 4, min_count = (W2V_MIN_COUNT if W2V_BY_VOCAB else 3))
+    word_model = word2vec.Word2Vec(page_list, iter = W2V_ITER, sg = 1, size = WV_SIZE, window = 6, workers = 4, min_count = (W2V_MIN_COUNT_BY_VOCAB if W2V_BY_VOCAB else W2V_MIN_COUNT_BY_CHAR))
     word_model.save(word_model_name)
     print("\nvector size: ", WV_SIZE, "\nvocab size: ", word_model.wv.syn0.shape[0])
     print(word_model.wv.most_similar("貓", topn = 10))
