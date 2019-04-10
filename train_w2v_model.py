@@ -1,3 +1,4 @@
+# coding=utf-8
 import re
 import os
 import sys
@@ -36,7 +37,10 @@ WV_SIZE = 200
 
 w2v_train_list = []
 
-def make_new_w2v() :
+def get_train_data() :
+    '''
+    return page_list, total_word_count
+    '''
     total_word_count = 0
     page_list = []
     print("fetching all post...")
@@ -53,7 +57,9 @@ def make_new_w2v() :
             this_page_words = START_MARK
         for i, line in enumerate(line_list) :
             if re.match(r"[\s\.\-/]{4,}", line) : continue # ignore morse code
-            if re.match(r"hstwproject", line) : continue
+            if re.match(r"hstwproject", line) : continue # ignore meta text
+            if re.match(r"^※", line) : continue # ingore translator's notes
+            if re.match(r"^(.{1,12})\n", line) : continue # ignore texts in images
             if line == "\n" : continue 
             if W2V_BY_VOCAB : line = line.split() + ['\n']
             this_page_words += line
@@ -68,9 +74,9 @@ def make_new_w2v() :
             else :
                 this_page_words += ENDING_MARK
         page_list.append(this_page_words)
-    
-    print("total word count:", total_word_count)
+    return page_list, total_word_count
 
+def make_new_w2v(page_list) :
     word_model_name = "myword2vec_by_word.model" if W2V_BY_VOCAB else "myword2vec_by_char.model"
     word_model = word2vec.Word2Vec(page_list, iter = W2V_ITER, sg = 1, size = WV_SIZE, window = 6, workers = 4, min_count = (W2V_MIN_COUNT_BY_VOCAB if W2V_BY_VOCAB else W2V_MIN_COUNT_BY_CHAR))
     word_model.save(word_model_name)
@@ -78,6 +84,9 @@ def make_new_w2v() :
     print(word_model.wv.most_similar("貓", topn = 10))
     
 if __name__ == "__main__" :
-    make_new_w2v()
+    p, c = get_train_data()
+    print("total word count:", c)
+    make_new_w2v(p
+    )
     print("done.")
     

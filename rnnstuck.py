@@ -15,11 +15,11 @@ from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, 
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1' # -1 : Use CPU; 0 or 1 : Use GPU
 
 PAGE_LENGTH_MAX = 400 # set None to be unlimited
-PAGE_LENGTH_MIN = 32
+PAGE_LENGTH_MIN = 20
 
 USE_SAVED_MODEL = False
 
-MAX_TIME_STEP = 8 # set None to be unlimited
+MAX_TIME_STEP = 10 # set None to be unlimited
 
 USE_EMBEDDING = False
 EMBEDDING_DIM = 80
@@ -32,7 +32,7 @@ SAVE_MODEL_NAME = "rnnstuck_model.h5"
 VOCAB_SIZE = -1
 RNN_UNIT = 24 # 1 core nvidia gt730 gpu: lstm(300) is limit
 BATCH_SIZE = 128
-EPOCHS = 10
+EPOCHS = 8
 VALIDATION_NUMBER = 100
 OUTPUT_NUMBER = 8
 # 4000 sample +
@@ -48,41 +48,8 @@ if not MAX_TIME_STEP :
         exit() 
 
 ### PREPARE TRAINING DATA ###
-total_word_count = 0
-page_list = []
-for count, pagename in enumerate(wvparas.PAGENAME_LIST[wvparas.SAMPLE_BEGIN : wvparas.SAMPLE_END]) :
-    if wvparas.W2V_BY_VOCAB :
-        line_list = open(wvparas.CUT_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()
-    else :
-        line_list = open(wvparas.PROC_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()  
-    # get words from this page
-    if wvparas.W2V_BY_VOCAB :
-        this_page_words = [wvparas.START_MARK]
-    else :
-        this_page_words = wvparas.START_MARK
-    for i, line in enumerate(line_list) :
-        if PAGE_LENGTH_MAX :
-            if len(this_page_words) + len(line) >= PAGE_LENGTH_MAX : break
-        if re.match(r"[\s\.\-/]{4,}", line) : continue # ignore morse code
-        if re.match(r"hstwproject", line) : continue
-        if line == "\n" : continue 
-        if wvparas.W2V_BY_VOCAB : line = line.split() + ['\n']
-        this_page_words += line
-    # end for line list
-    # if this page is too short : ignore
-    if len(this_page_words) < PAGE_LENGTH_MIN :
-        continue
-    total_word_count += (len(this_page_words) - 1)
-    # put ending character at the end of a page
-    if wvparas.USE_ENDING_MARK :
-        if wvparas.W2V_BY_VOCAB :
-            this_page_words.append(wvparas.ENDING_MARK)
-        else :
-            this_page_words += wvparas.ENDING_MARK
-    page_list.append(this_page_words)  
-    # end for
+page_list, total_word_count = wvparas.get_train_data()
 np.random.shuffle(page_list)
-### END PREPARE TRAINING DATA ###
 
 ### LOAD WORD MODEL ###
 word_model_name = "myword2vec_by_word.model" if wvparas.W2V_BY_VOCAB else "myword2vec_by_char.model"
@@ -148,8 +115,8 @@ for page in page_list :
 # make batch training data
 def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zero = False) :
     train_input_length = len(x_train_list)
-    end_mark_factor = (total_word_count // train_input_length) // 2
-    print(end_mark_factor)
+    end_mark_factor = total_word_count // train_input_length
+    print("end_mark_factor:", end_mark_factor)
     print_counter = 0
     while 1:
         if use_wv : 
@@ -188,15 +155,15 @@ def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zer
         yield x, y
 
 ### CALLBACK FUNCTIONS ###
-STEPS_PER_EPOCH = math.floor(total_word_count / BATCH_SIZE / 1.2)
-learning_rate = 0.0002
+STEPS_PER_EPOCH = math.floor(total_word_count // BATCH_SIZE) * (MAX_TIME_STEP // 2)
+learning_rate = 0.0001
 
 def sparse_categorical_perplexity(y_true, y_pred) :
     return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
     
 def lrate_epoch_decay(epoch) :
     init_lr = learning_rate
-    epoch_per_decay = 2
+    epoch_per_decay = 1
     decay = 0.707
     e = min(8, math.floor((epoch + 1) / epoch_per_decay))
     return init_lr * math.pow(decay, e)
@@ -227,7 +194,7 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
 def output_to_file(filename, output_number, max_output_length) :
     outfile = open(filename, "w+", encoding = "utf-8-sig")
     for out_i in range(output_number) :
-        output_sentence = predict_output_sentence(model, 0.75, max_output_length, np.random.choice(page_list)[0 : 2])
+        output_sentence = predict_output_sentence(model, 0.8, max_output_length, np.random.choice(page_list)[0 : 2])
         output_string = ""
         for word in output_sentence :
             output_string += word
