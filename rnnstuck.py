@@ -14,27 +14,33 @@ from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, 
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1' # -1 : Use CPU; 0 or 1 : Use GPU
 
-PAGE_LENGTH_MAX = 400 # set None to be unlimited
-PAGE_LENGTH_MIN = 20
+PAGE_LENGTH_MAX = 600 # set None to be unlimited
+PAGE_LENGTH_MIN = 16
+SENTENCE_LENGTH_MIN = 3
 
 USE_SAVED_MODEL = False
 
-MAX_TIME_STEP = 10 # set None to be unlimited
+MAX_TIME_STEP = 64 # set None to be unlimited
 
 USE_EMBEDDING = False
-EMBEDDING_DIM = 80
+EMBEDDING_DIM = True
 
+OFFET_FROM_ZERO = False
 Use_FULL_SEQ = False
 USE_ATTENTION = False # only relevant when Use_FULL_SEQ is True
 
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 
 VOCAB_SIZE = -1
-RNN_UNIT = 24 # 1 core nvidia gt730 gpu: lstm(300) is limit
-BATCH_SIZE = 128
-EPOCHS = 8
+RNN_LAYERS_NUM = 3
+RNN_UNIT = 100 # 1 core nvidia gt730 gpu: lstm(300) is limit
+BATCH_SIZE = 256
+EPOCHS = 64
 VALIDATION_NUMBER = 100
+
 OUTPUT_NUMBER = 8
+OUTPUT_TIME_STEP = 200
+
 # 4000 sample +
 # W2V_BY_VOCAB = True +
 # 100 unit lstm +
@@ -48,7 +54,7 @@ if not MAX_TIME_STEP :
         exit() 
 
 ### PREPARE TRAINING DATA ###
-page_list, total_word_count = wvparas.get_train_data()
+page_list, total_word_count = wvparas.get_train_data(page_length_min = PAGE_LENGTH_MIN, sentence_length_min = SENTENCE_LENGTH_MIN)
 np.random.shuffle(page_list)
 
 ### LOAD WORD MODEL ###
@@ -106,16 +112,16 @@ def make_label_matrix(word_list) :
     label_matrix[0, -1, 0] = word_vector.vocab[wvparas.ENDING_MARK].index
     return label_matrix
 
-x_train_list = []
-y_train_list = []
+train_data_list = []
+label_data_list = []
 for page in page_list :
-    x_train_list.append(make_input_matrix(page, use_wv = not USE_EMBEDDING))
-    y_train_list.append(make_label_matrix(page))
+    train_data_list.append(make_input_matrix(page, use_wv = not USE_EMBEDDING))
+    label_data_list.append(make_label_matrix(page))
 
 # make batch training data
-def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zero = False) :
-    train_input_length = len(x_train_list)
-    end_mark_factor = total_word_count // train_input_length
+def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zero = False, use_prevent_end_mark = True) :
+    train_input_length = len(train_data_list)
+    end_mark_factor = (total_word_count) // train_input_length // PAGE_LENGTH_MIN 
     print("end_mark_factor:", end_mark_factor)
     print_counter = 0
     while 1:
@@ -127,8 +133,7 @@ def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zer
             y = np.zeros((batch_size, 1))
             
         # to prevent too many ending mark in training data
-        prevent_end_mark = 1 if np.random.randint(0, end_mark_factor) > 1 else 0
-        
+        prevent_end_mark = 1 if (use_prevent_end_mark and np.random.randint(0, end_mark_factor) > 1) else 0
         i = 0
         while(i < batch_size) :
             n = np.random.randint(train_input_length)
@@ -136,14 +141,14 @@ def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zer
             # decide answer, this number is INCLUSIVE
             # and then, decide timestep length 
             if offset_from_zero :
-                answer = np.random.randint(0, min(x_train_list[n].shape[1] - 1 - prevent_end_mark, max_time_step))
+                answer = np.random.randint(0, min(train_data_list[n].shape[1] - 1 - prevent_end_mark, max_time_step))
                 time_step = answer + 1 # the length from 0 to answer is answer+1
             else :
-                answer = np.random.randint(0, x_train_list[n].shape[1] - 1 - prevent_end_mark) # minus 1 because we don't want ending mark appear in input
+                answer = np.random.randint(0, train_data_list[n].shape[1] - 1 - prevent_end_mark) # minus 1 because we don't want ending mark appear in input
                 time_step = np.random.randint(1, min(answer + 2, max_time_step + 1))
         
-            x[i, : time_step] = x_train_list[n][:, answer + 1 - time_step : answer + 1] # add 1 because need to include x_train_list[answer]
-            y[i] = y_train_list[n][:, answer]
+            x[i, : time_step] = train_data_list[n][:, answer + 1 - time_step : answer + 1] # add 1 because need to include train_data_list[answer]
+            y[i] = label_data_list[n][:, answer]
             i += 1
         # end while i < batch_size
         '''
@@ -155,15 +160,15 @@ def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zer
         yield x, y
 
 ### CALLBACK FUNCTIONS ###
-STEPS_PER_EPOCH = math.floor(total_word_count // BATCH_SIZE) * (MAX_TIME_STEP // 2)
-learning_rate = 0.0001
+STEPS_PER_EPOCH = total_word_count // BATCH_SIZE
+learning_rate = 0.0005
 
 def sparse_categorical_perplexity(y_true, y_pred) :
     return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
     
 def lrate_epoch_decay(epoch) :
     init_lr = learning_rate
-    epoch_per_decay = 1
+    epoch_per_decay = 2
     decay = 0.707
     e = min(8, math.floor((epoch + 1) / epoch_per_decay))
     return init_lr * math.pow(decay, e)
@@ -194,7 +199,7 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
 def output_to_file(filename, output_number, max_output_length) :
     outfile = open(filename, "w+", encoding = "utf-8-sig")
     for out_i in range(output_number) :
-        output_sentence = predict_output_sentence(model, 0.8, max_output_length, np.random.choice(page_list)[0 : 2])
+        output_sentence = predict_output_sentence(model, 0.75, max_output_length, np.random.choice(page_list)[0 : 2])
         output_string = ""
         for word in output_sentence :
             output_string += word
@@ -204,7 +209,7 @@ def output_to_file(filename, output_number, max_output_length) :
 
 class OutputPrediction(Callback) :
     def on_epoch_end(self, epoch, logs={}) :
-        output_to_file("output.txt", 4, 128)
+        output_to_file("output.txt", 4, OUTPUT_TIME_STEP)
 
 pred_outputer = OutputPrediction()
 
@@ -233,7 +238,9 @@ else :
         preproc_layer = Masking(mask_value = 0.)(input_layer)
     
     if Use_FULL_SEQ :
-        rnn_layer = LSTM(RNN_UNIT, return_sequences = True, stateful = False)(preproc_layer)
+        rnn_layer = preproc_layer
+        for i in range(RNN_LAYERS_NUM) :
+            rnn_layer = LSTM(RNN_UNIT, return_sequences = True, stateful = False)(rnn_layer)
         if USE_ATTENTION :
             attention = Permute((2, 1))(rnn_layer)
             attention = Dense(1, activation = "softmax")(attention)
@@ -245,7 +252,9 @@ else :
             postproc_layer = Flatten()(rnn_layer)
         postproc_layer = BatchNormalization()(postproc_layer)
     else :
-       rnn_layer = LSTM(RNN_UNIT, return_sequences = False, stateful = False)(preproc_layer)
+       rnn_layer = preproc_layer
+       for i in range(RNN_LAYERS_NUM) :
+           rnn_layer = LSTM(RNN_UNIT, return_sequences = (i != RNN_LAYERS_NUM - 1), stateful = False)(rnn_layer)
        postproc_layer = BatchNormalization()(rnn_layer)
     
     guess_next = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
@@ -255,7 +264,7 @@ else :
     
 model.summary()
 
-model.fit_generator(generator = generate_sentences(MAX_TIME_STEP, BATCH_SIZE, use_wv = (not USE_EMBEDDING)),
+model.fit_generator(generator = generate_sentences(MAX_TIME_STEP, BATCH_SIZE, use_wv = (not USE_EMBEDDING), offset_from_zero = OFFET_FROM_ZERO),
                     steps_per_epoch = STEPS_PER_EPOCH, 
                     epochs = EPOCHS, 
                     verbose = 1,

@@ -37,7 +37,7 @@ WV_SIZE = 200
 
 w2v_train_list = []
 
-def get_train_data() :
+def get_train_data(page_length_min = 3, sentence_length_min = 0) :
     '''
     return page_list, total_word_count
     '''
@@ -62,9 +62,10 @@ def get_train_data() :
             if re.match(r"^(.{1,12})\n", line) : continue # ignore texts in images
             if line == "\n" : continue 
             if W2V_BY_VOCAB : line = line.split() + ['\n']
+            if i != 0 and len(line) < sentence_length_min : continue
             this_page_words += line
         # if this page is too short : ignore
-        if len(this_page_words) < 3 :
+        if len(this_page_words) < page_length_min :
             continue
         total_word_count += len(this_page_words)
         # put ending character at the end of a page
