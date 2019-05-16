@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import math
 import h5py
-import train_w2v_model as wvparas
+import train_w2v_model as wvparam
 from gensim.models import word2vec
 from keras import optimizers
 from keras import backend as K
@@ -20,10 +20,10 @@ SENTENCE_LENGTH_MIN = 3
 
 USE_SAVED_MODEL = False
 
-MAX_TIME_STEP = 64 # set None to be unlimited
+MAX_TIME_STEP = 32 # set None to be unlimited
 
 USE_EMBEDDING = False
-EMBEDDING_DIM = True
+EMBEDDING_DIM = 100
 
 OFFET_FROM_ZERO = False
 Use_FULL_SEQ = False
@@ -33,9 +33,9 @@ SAVE_MODEL_NAME = "rnnstuck_model.h5"
 
 VOCAB_SIZE = -1
 RNN_LAYERS_NUM = 3
-RNN_UNIT = 100 # 1 core nvidia gt730 gpu: lstm(300) is limit
+RNN_UNIT = 100 # 1 nvidia gt730 gpu: lstm(300) is limit
 BATCH_SIZE = 256
-EPOCHS = 64
+EPOCHS = 20
 VALIDATION_NUMBER = 100
 
 OUTPUT_NUMBER = 8
@@ -47,18 +47,18 @@ OUTPUT_TIME_STEP = 200
 # 1 epoch
 #    ==> ~20 minute
 
-print("\nW2V_BY_VOCAB: ", wvparas.W2V_BY_VOCAB, "\nPAGE_LENGTH_MAX", PAGE_LENGTH_MAX, "\nPAGE_LENGTH_MIN", PAGE_LENGTH_MIN)
+print("\nW2V_BY_VOCAB: ", wvparam.W2V_BY_VOCAB, "\nPAGE_LENGTH_MAX", PAGE_LENGTH_MAX, "\nPAGE_LENGTH_MIN", PAGE_LENGTH_MIN)
 if not MAX_TIME_STEP :
     if MAX_TIME_STEP > PAGE_LENGTH_MIN :
         print("Error: PAGE_LENGTH_MIN must bigger than MAX_TIME_STEP")
         exit() 
 
 ### PREPARE TRAINING DATA ###
-page_list, total_word_count = wvparas.get_train_data(page_length_min = PAGE_LENGTH_MIN, sentence_length_min = SENTENCE_LENGTH_MIN)
+page_list, total_word_count = wvparam.get_train_data(page_length_min = PAGE_LENGTH_MIN, sentence_length_min = SENTENCE_LENGTH_MIN)
 np.random.shuffle(page_list)
 
 ### LOAD WORD MODEL ###
-word_model_name = "myword2vec_by_word.model" if wvparas.W2V_BY_VOCAB else "myword2vec_by_char.model"
+word_model_name = "myword2vec_by_word.model" if wvparam.W2V_BY_VOCAB else "myword2vec_by_char.model"
 try :
     word_model = word2vec.Word2Vec.load(word_model_name)
 except :
@@ -69,12 +69,12 @@ VOCAB_SIZE = word_vector.syn0.shape[0]
 del word_model
 
 print("total_word_count: ", total_word_count)
-print("vector size: ", wvparas.WV_SIZE, "\nvocab size: ", VOCAB_SIZE)
+print("vector size: ", wvparam.WV_SIZE, "\nvocab size: ", VOCAB_SIZE)
 print("\n貓:", word_vector.most_similar("貓", topn = 10))
 #for i in range(0, 10) : print(page_list[i])
 
 def make_input_matrix(word_list, use_wv = True, sentence_length_limit = None) :
-    dim = wvparas.WV_SIZE if use_wv else 1  
+    dim = wvparam.WV_SIZE if use_wv else 1  
     if sentence_length_limit :
         input_matrix = np.zeros([1, sentence_length_limit, dim])
     else :
@@ -109,7 +109,7 @@ def make_label_matrix(word_list) :
                 except KeyError :
                     continue
     # don't want last element in label_matrix be zero vecter, so make it to be ending mark
-    label_matrix[0, -1, 0] = word_vector.vocab[wvparas.ENDING_MARK].index
+    label_matrix[0, -1, 0] = word_vector.vocab[wvparam.ENDING_MARK].index
     return label_matrix
 
 train_data_list = []
@@ -126,7 +126,7 @@ def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zer
     print_counter = 0
     while 1:
         if use_wv : 
-            x = np.zeros((batch_size, max_time_step, wvparas.WV_SIZE))
+            x = np.zeros((batch_size, max_time_step, wvparam.WV_SIZE))
             y = np.zeros((batch_size, 1)) 
         else :
             x = np.zeros((batch_size, max_time_step))
@@ -161,7 +161,7 @@ def generate_sentences(max_time_step, batch_size, use_wv = True, offset_from_zer
 
 ### CALLBACK FUNCTIONS ###
 STEPS_PER_EPOCH = total_word_count // BATCH_SIZE
-learning_rate = 0.0005
+learning_rate = 0.0002
 
 def sparse_categorical_perplexity(y_true, y_pred) :
     return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
@@ -192,7 +192,7 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
         y_test = sample(y_test[0], temperature)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]   
         output_sentence.append(next_word)
-        if next_word == wvparas.ENDING_MARK : break
+        if next_word == wvparam.ENDING_MARK : break
     output_sentence.append("\n")
     return output_sentence
 
@@ -234,7 +234,7 @@ else :
         preproc_layer = Masking(mask_value = 0.)(input_layer)
         preproc_layer = Embedding(input_dim = VOCAB_SIZE, output_dim = EMBEDDING_DIM)(preproc_layer)
     else :
-        input_layer = Input([MAX_TIME_STEP, wvparas.WV_SIZE])
+        input_layer = Input([MAX_TIME_STEP, wvparam.WV_SIZE])
         preproc_layer = Masking(mask_value = 0.)(input_layer)
     
     if Use_FULL_SEQ :

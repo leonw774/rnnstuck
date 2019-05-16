@@ -2,7 +2,7 @@ import os
 import random
 import h5py
 import numpy as np
-import train_w2v_model as wvparas
+import train_w2v_model as wvparam
 from keras.models import load_model
 from gensim.models import word2vec
 
@@ -12,7 +12,7 @@ USE_EMBEDDING = False
 model = load_model("rnnstuck_model.h5")
 outfile = open("output-generate.txt", "w+", encoding = "utf-8-sig")
 
-if wvparas.W2V_BY_VOCAB : word_model = word2vec.Word2Vec.load("myword2vec_by_word.model")
+if wvparam.W2V_BY_VOCAB : word_model = word2vec.Word2Vec.load("myword2vec_by_word.model")
 else : word_model = word2vec.Word2Vec.load("myword2vec_by_char.model")
 word_vector = word_model.wv
 del word_model
@@ -22,7 +22,7 @@ MAX_TIME_STEP = model.layers[0].input_shape[1]
 print("MAX_TIME_STEP", MAX_TIME_STEP)
 
 def make_input_matrix(word_list, use_wv = True, sentence_length_limit = None) :
-    dim = wvparas.WV_SIZE if use_wv else 1  
+    dim = wvparam.WV_SIZE if use_wv else 1  
     if sentence_length_limit :
         input_matrix = np.zeros([1, sentence_length_limit, dim])
     else :
@@ -61,18 +61,18 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
         y_test = sample(y_test[0], temperature)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]   
         output_sentence.append(next_word)
-        if next_word == wvparas.ENDING_MARK : break
+        if next_word == wvparam.ENDING_MARK : break
     output_sentence.append("\n")
     return output_sentence
 
 def output_to_file(filename, output_number, max_output_length) :
     outfile = open(filename, "w+", encoding = "utf-8-sig")
-    if wvparas.W2V_BY_VOCAB :
-        init_word = open(wvparas.CUT_PATH + np.random.choice(wvparas.PAGENAME_LIST), 'r', encoding = 'utf-8-sig').readline().split()[0]
+    if wvparam.W2V_BY_VOCAB :
+        init_word = open(wvparam.CUT_PATH + np.random.choice(wvparam.PAGENAME_LIST), 'r', encoding = 'utf-8-sig').readline().split()[0]
     else :
-        init_word = open(wvparas.PROC_PATH + np.random.choice(wvparas.PAGENAME_LIST), 'r', encoding = 'utf-8-sig').readline()[0]
+        init_word = open(wvparam.PROC_PATH + np.random.choice(wvparam.PAGENAME_LIST), 'r', encoding = 'utf-8-sig').readline()[0]
     for out_i in range(output_number) :
-        output_sentence = predict_output_sentence(model, 0.75, max_output_length, init_word)
+        output_sentence = predict_output_sentence(model, 0.8, max_output_length, init_word)
         output_string = ""
         for word in output_sentence :
             output_string += word
