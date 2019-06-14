@@ -1,4 +1,4 @@
-# coding=utf-8
+#py coding=utf-8
 import re
 import os
 import sys
@@ -8,7 +8,7 @@ from gensim.models import word2vec
 PROC_PATH = "processed_posts/"
 CUT_PATH = "cut_posts/"
 SAMPLE_BEGIN = 0
-SAMPLE_END = 5460
+SAMPLE_END = -1
 
 def sort_file_name_as_int(element) :
     if not element.endswith(".txt") :
@@ -23,7 +23,7 @@ def get_pagename_list(path) :
 
 PAGENAME_LIST = get_pagename_list(PROC_PATH)
 
-W2V_BY_VOCAB = False # if False: Create w2v model by each character
+W2V_BY_VOCAB = True # if False: Create w2v model by each character
 
 START_MARK = 'š'
 
@@ -87,7 +87,6 @@ def make_new_w2v(page_list) :
 if __name__ == "__main__" :
     p, c = get_train_data()
     print("total word count:", c)
-    make_new_w2v(p
-    )
+    make_new_w2v(p)
     print("done.")
     
