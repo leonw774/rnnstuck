@@ -6,35 +6,34 @@ import math
 import h5py
 import train_w2v as w2vparam
 from gensim.models import word2vec
-from keras import optimizers
+from keras import activations, optimizers
 from keras import backend as K
-from keras.models import Sequential, Model, load_model
+from keras.models import Model, load_model
 from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping
 from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LeakyReLU, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = '1' # -1 : Use CPU; 0 or 1 : Use GPU
+#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+# -1 : Use CPU; 0 or 1 : Use GPU
 
 PAGE_LENGTH_MAX = None # set None to be unlimited
-PAGE_LENGTH_MIN = 16
+PAGE_LENGTH_MIN = 32
 SENTENCE_LENGTH_MIN = 3
 
 USE_SAVED_MODEL = False
 
-MAX_TIME_STEP = 24 # set None to be unlimited
+MAX_TIMESTEP = 24 # set None to be unlimited
+FIXED_TIMESTEP = False
+if FIXED_TIMESTEP and MAX_TIMESTEP > PAGE_LENGTH_MIN :
+    MAX_TIMESTEP = PAGE_LENGTH_MIN
 
-USE_EMBEDDING = False # use embedding means no word vector
-EMBEDDING_DIM = 100
-
-ZERO_OFFSET = False
-Use_FULL_SEQ = False
-USE_ATTENTION = False # only relevant when Use_FULL_SEQ is True
+ZERO_OFFSET = False # only valid when FIXED_TIMESTEP == False
+USE_ATTENTION = True # only valid when FIXED_TIMESTEP == True
 
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 
 VOCAB_SIZE = -1
-RNN_LAYERS_NUM = 2
-RNN_UNIT = 64 # 1 nvidia gt730 gpu: lstm(300) is limit
-BATCH_SIZE = 256
+RNN_UNIT = [64] # 1 nvidia gt730 gpu: lstm(300) is limit
+BATCH_SIZE = 196
 EPOCHS = 32
 VALIDATION_NUMBER = 100
 
@@ -48,9 +47,9 @@ OUTPUT_TIME_STEP = 128
 #    ==> ~20 minute
 
 print("\nW2V_BY_VOCAB: ", w2vparam.W2V_BY_VOCAB, "\nPAGE_LENGTH_MAX", PAGE_LENGTH_MAX, "\nPAGE_LENGTH_MIN", PAGE_LENGTH_MIN)
-if not MAX_TIME_STEP :
-    if MAX_TIME_STEP > PAGE_LENGTH_MIN :
-        print("Error: PAGE_LENGTH_MIN must bigger than MAX_TIME_STEP")
+if not MAX_TIMESTEP :
+    if MAX_TIMESTEP > PAGE_LENGTH_MIN :
+        print("Error: PAGE_LENGTH_MIN must bigger than MAX_TIMESTEP")
         exit() 
 
 ### PREPARE TRAINING DATA ###
@@ -75,32 +74,29 @@ print("\n貓:", word_vector.most_similar("貓", topn = 10))
 
 ### PREPARE TRAINING DATA ###
 def make_input_matrix(word_list, sentence_length_limit = None) :
-    dim = 1 if USE_EMBEDDING else w2vparam.WV_SIZE
+    dim = w2vparam.WV_SIZE
     if sentence_length_limit :
         input_matrix = np.zeros([1, sentence_length_limit, dim])
     else :
         input_matrix = np.zeros([1, len(word_list), dim])
-    
-    if USE_EMBEDDING :
-        input_matrix = np.squeeze(input_matrix, axis = 2)
     
     if sentence_length_limit :
         word_list = word_list[ -sentence_length_limit : ] # only keep last few words if has sentence_length_limit
 
     for i, word in enumerate(word_list) :
         try :
-            input_matrix[0, i] = word_vector.vocab[word].index + 1 if USE_EMBEDDING else word_vector[word] # add one because zero is masked
+            input_matrix[0, i] = word_vector[word] # add one because zero is masked
         except KeyError :
             for c in word :
                 try :
-                    input_matrix[0, i] = word_vector.vocab[word].index + 1 if USE_EMBEDDING else word_vector[word]
+                    input_matrix[0, i] = word_vector[word]
                 except KeyError :
                     continue
     return input_matrix
     
 def make_label_matrix(word_list) :
     label_matrix = np.zeros([1, len(word_list), 1], dtype=np.int32)
-    word_list = word_list[1 : ] # delete first element
+    word_list = word_list[1 : ] # delete start mark
     for i, word in enumerate(word_list) :
         try :
             label_matrix[0, i, 0] = word_vector.vocab[word].index # because sparse_categorical
@@ -123,30 +119,29 @@ for page in page_list :
 # make batch training data
 def generate_sentences(max_time_step, batch_size, zero_offset = False, use_prevent_end_mark = True) :
     train_input_length = len(train_data_list)
-    end_mark_factor = (total_word_count) // train_input_length // PAGE_LENGTH_MIN 
-    print("end_mark_factor:", end_mark_factor)
+    end_mark_factor = MAX_TIMESTEP
+    #print("end_mark_factor:", end_mark_factor)
     print_counter = 0
     while 1:
-        if USE_EMBEDDING : 
-            x = np.zeros((batch_size, max_time_step))
-            y = np.zeros((batch_size, 1))
-        else :
-            x = np.zeros((batch_size, max_time_step, w2vparam.WV_SIZE))
-            y = np.zeros((batch_size, 1))
-        # to prevent too many ending mark in training data
-        prevent_end_mark = 2 if (use_prevent_end_mark and np.random.randint(0, end_mark_factor) > 1) else 1
+        x = np.zeros((batch_size, max_time_step, w2vparam.WV_SIZE))
+        y = np.zeros((batch_size, 1))
         i = 0
         while(i < batch_size) :
             n = np.random.randint(train_input_length)
+            is_no_endmark = int(np.random.randint(end_mark_factor) / end_mark_factor + 1)
             # decide answer, this number is INCLUSIVE
             # and then, decide timestep length 
-            if zero_offset :
-                answer = np.random.randint(0, min(train_data_list[n].shape[1] - prevent_end_mark, max_time_step))
+            if FIXED_TIMESTEP :
+                answer = np.random.randint(max_time_step, train_data_list[n].shape[1]) - is_no_endmark
+                time_step = max_time_step
+            elif zero_offset :    
+                answer = np.random.randint(0, min(train_data_list[n].shape[1] - is_no_endmark, max_time_step))
                 time_step = answer + 1 # the length from 0 to answer is answer+1
             else :
-                answer = np.random.randint(0, train_data_list[n].shape[1] - prevent_end_mark) # minus 1 because we don't want ending mark appear in input
+                answer = np.random.randint(0, train_data_list[n].shape[1] - is_no_endmark)
                 time_step = np.random.randint(1, min(answer + 2, max_time_step + 1))
-            x[i, : time_step] = train_data_list[n][:, answer + 1 - time_step : answer + 1] # add 1 because need to include train_data_list[answer]
+            x[i, : time_step] = train_data_list[n][:, answer + 1 - time_step : answer + 1]
+            # answer + 1 because need to include train_data_list[answer]
             y[i] = label_data_list[n][:, answer]
             i += 1
         # end while i < batch_size
@@ -164,13 +159,12 @@ def sparse_categorical_perplexity(y_true, y_pred) :
     
 def lrate_epoch_decay(epoch) :
     init_lr = learning_rate
-    epoch_per_decay = 4
     decay = 0.707
-    e = min(8, (epoch + 1) // epoch_per_decay)
+    e = min(8, (epoch + 1) // 2) # 2 epoches per decay, with max e = 8
     return init_lr * math.pow(decay, e)
     
 lr_scheduler = LearningRateScheduler(lrate_epoch_decay)
-early_stop = EarlyStopping(monitor = "loss", min_delta = 0.01, patience = 8)
+early_stop = EarlyStopping(monitor = "loss", min_delta = 0.001, patience = EPOCHS // 2)
 
 def sample(prediction, temperature = 1.0) :
     prediction = np.asarray(prediction).astype('float64')
@@ -184,7 +178,7 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
     if initial_input_sentence :
         output_sentence += initial_input_sentence
     for n in range(max_output_length) :
-        input_array = make_input_matrix(output_sentence, sentence_length_limit = MAX_TIME_STEP)
+        input_array = make_input_matrix(output_sentence, sentence_length_limit = MAX_TIMESTEP)
         y_test = model.predict(input_array)
         y_test = sample(y_test[0], temperature)
         next_word = word_vector.wv.index2word[np.argmax(y_test[0])]   
@@ -215,9 +209,7 @@ STEPS_PER_EPOCH = total_word_count // BATCH_SIZE // 2
 learning_rate = 0.001
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
-if USE_EMBEDDING :
-    print("USE_EMBEDDING:", USE_EMBEDDING, "\nEMBEDDING_DIM:", EMBEDDING_DIM)
-print("max time step:", MAX_TIME_STEP, "\nrnn units:", RNN_UNIT, "\nbatch size:", BATCH_SIZE, "\nvalidation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
+print("max time step:", MAX_TIMESTEP, "\nrnn units:", RNN_UNIT, "\nbatch size:", BATCH_SIZE, "\nvalidation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
 print("step per epoch:", STEPS_PER_EPOCH, "\nlearning_rate:", learning_rate)
 
 if USE_SAVED_MODEL :
@@ -228,36 +220,24 @@ else :
     adam = optimizers.Adam(lr = learning_rate, decay = 0.0)
     
     ## make model
-    if USE_EMBEDDING :
-        input_layer = Input([MAX_TIME_STEP])
-        preproc_layer = Masking(mask_value = 0.)(input_layer)
-        preproc_layer = Embedding(input_dim = VOCAB_SIZE, output_dim = EMBEDDING_DIM)(preproc_layer)
+    input_layer = Input([MAX_TIMESTEP, w2vparam.WV_SIZE])
+    if not FIXED_TIMESTEP :
+        rnn_layer = Masking(mask_value = 0.)(input_layer)
     else :
-        input_layer = Input([MAX_TIME_STEP, w2vparam.WV_SIZE])
-        preproc_layer = Masking(mask_value = 0.)(input_layer)
+        rnn_layer = input_layer
     
-    if Use_FULL_SEQ :
-        rnn_layer = preproc_layer
-        for i in range(RNN_LAYERS_NUM) :
-            rnn_layer = LSTM(RNN_UNIT, return_sequences = True, stateful = False)(rnn_layer)
-            rnn_layer = BatchNormalization()(rnn_layer)
-        if USE_ATTENTION :
-            attention = Permute((2, 1))(rnn_layer)
-            attention = Dense(1, activation = "softmax")(attention)
-            attention = Permute((2, 1))(attention)
-            attention = RepeatVector(MAX_TIME_STEP)(attention)
-            postproc_layer = multiply([attention, rnn_layer])
-            postproc_layer = Flatten()(postproc_layer)
-        else :
-            postproc_layer = Flatten()(rnn_layer)
+    for i, v in enumerate(RNN_UNIT) :
+        rnn_layer = LSTM(v, return_sequences = (i != len(RNN_UNIT) - 1) or USE_ATTENTION, stateful = False)(rnn_layer)
+        rnn_layer = BatchNormalization()(rnn_layer)
+    if USE_ATTENTION :
+        print(rnn_layer.shape)
+        attention = Dense(1, activation = "softmax")(rnn_layer)
+        print(attention.shape)
+        postproc_layer = multiply([attention, rnn_layer])
+        postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
         postproc_layer = BatchNormalization()(postproc_layer)
     else :
-       rnn_layer = preproc_layer
-       for i in range(RNN_LAYERS_NUM) :
-           rnn_layer = LSTM(RNN_UNIT, return_sequences = (i != RNN_LAYERS_NUM - 1), stateful = False)(rnn_layer)
-           rnn_layer = BatchNormalization()(rnn_layer)
-       postproc_layer = rnn_layer
-    
+        postproc_layer = rnn_layer
     guess_next = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
     
     model = Model(input_layer, guess_next)
@@ -265,12 +245,12 @@ else :
     
 model.summary()
 
-model.fit_generator(generator = generate_sentences(MAX_TIME_STEP, BATCH_SIZE, zero_offset = ZERO_OFFSET),
+model.fit_generator(generator = generate_sentences(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET),
                     steps_per_epoch = STEPS_PER_EPOCH, 
                     epochs = EPOCHS, 
                     verbose = 1,
                     callbacks = [lr_scheduler, early_stop, pred_outputer],
-                    validation_data = generate_sentences(MAX_TIME_STEP, VALIDATION_NUMBER, zero_offset = True), 
+                    validation_data = generate_sentences(MAX_TIMESTEP, VALIDATION_NUMBER, zero_offset = True), 
                     validation_steps = 1)
 model.save(SAVE_MODEL_NAME)
 
