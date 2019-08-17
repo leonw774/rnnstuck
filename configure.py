@@ -1,7 +1,7 @@
 # fetch posts
-PAGE_LENGTH_MAX = None # set None to be unlimited
-PAGE_LENGTH_MIN = 32
-LINE_LENGTH_MAX = 50
+PAGE_LENGTH_MAX = 5000 # set None to be unlimited
+PAGE_LENGTH_MIN = 16
+LINE_LENGTH_MAX = 32
 LINE_LENGTH_MIN = 2
 
 # w2v setting
@@ -24,15 +24,22 @@ USE_SAVED_MODEL = False
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 
 # LSTM setting
-RNN_UNIT = [64] # nvidia gt730 gpu: lstm(300) is limit
+RNN_UNIT = [128] # nvidia gt730 gpu: lstm(300) is limit
 USE_ATTENTION = True and MAX_TIMESTEP != None
 VOCAB_SIZE = -1
-BATCH_SIZE = 128
-EPOCHS = 1
+BATCH_SIZE = 256
+EPOCHS = 24
 VALIDATION_NUMBER = 100
 
 OUTPUT_NUMBER = 4
 OUTPUT_TIME_STEP = 128
 
 STEP_EPOCH_RATE = 0.707
+LEARNING_RATE = 0.001
+LR_DECAY = 0.707
+LR_DECAY_INTV = 2
+LR_DECAY_POW_MAX = 8
+
+EARLYSTOP_MIN_DELTA = 0.01
+EARLYSTOP_PATIENCE = EPOCHS // 4
 

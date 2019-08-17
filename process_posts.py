@@ -105,6 +105,7 @@ for file_i, filename in enumerate(filename_list) :
     post_string = tag_remover(post_string)
     post_string = re.sub("&nbsp;", " ", post_string)
     post_string = re.sub("&gt;", ">", post_string)
+    post_string = re.sub("&#42;", "*", post_string)
     post_string = re.sub("&amp;", "&", post_string)
     new_file = open(PROC_PATH + str(file_i) + ".txt", 'w', encoding = 'utf-8-sig')
     new_file.write(post_string)

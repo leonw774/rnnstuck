@@ -24,7 +24,7 @@ if MAX_TIMESTEP :
         exit() 
 
 ### PREPARE TRAINING DATA ###
-page_list, total_word_count = get_train_data(page_length_min = PAGE_LENGTH_MIN, line_length_min = LINE_LENGTH_MIN, line_length_max = LINE_LENGTH_MAX)
+page_list, total_word_count = get_train_data(page_length_min = PAGE_LENGTH_MIN, page_length_max = PAGE_LENGTH_MAX, line_length_min = LINE_LENGTH_MIN, line_length_max = LINE_LENGTH_MAX)
 np.random.shuffle(page_list)
 
 ### LOAD WORD MODEL ###
@@ -94,10 +94,12 @@ def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
     end_mark_factor = max_timestep if max_timestep else OUTPUT_TIME_STEP
     print("end_mark_factor:", end_mark_factor)
     print_counter = 0
+    
+    x = np.zeros((batch_size, max_timestep, WV_SIZE))
+    y = np.zeros((batch_size, 1))
+    
     while 1 :
         if is_maxtimestep_none : max_timestep = np.random.randint(end_mark_factor)
-        x = np.zeros((batch_size, max_timestep, WV_SIZE))
-        y = np.zeros((batch_size, 1))
         i = 0
         while(i < batch_size) :
             n = np.random.randint(train_input_length)
@@ -126,26 +128,28 @@ def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
             print_counter += 1
         '''
         yield x, y
+    # end while
+# end def generate_random_sentences
         
 def generate_post_as_sentence(max_timestep, batch_size, zero_offset = False) :
+    train_input_length = len(train_data_list)
     n = 0
     #print(train_data_list[0].shape, label_data_list[0].shape)
     while 1 :
         yield train_data_list[n], label_data_list[n]
-        n = (n + 1) % len(train_data_list)
+        n = (n + 1) % train_input_length
 
 ### CALLBACK FUNCTIONS ###
 def sparse_categorical_perplexity(y_true, y_pred) :
     return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
     
 def lrate_epoch_decay(epoch) :
-    init_lr = learning_rate
-    decay = 0.5
-    e = min(8, (epoch + 1) // 2) # 2 epoches per decay, with max e = 8
-    return init_lr * math.pow(decay, e)
+    init_lr = LEARNING_RATE
+    e = min(LR_DECAY_POW_MAX, (epoch + 1) // LR_DECAY_INTV) # 2 epoches per decay, with max e = 8
+    return init_lr * math.pow(LR_DECAY, e)
     
 lr_scheduler = LearningRateScheduler(lrate_epoch_decay)
-early_stop = EarlyStopping(monitor = "loss", min_delta = 0.001, patience = EPOCHS // 4)
+early_stop = EarlyStopping(monitor = "loss", min_delta = EARLYSTOP_MIN_DELTA, patience = EARLYSTOP_PATIENCE)
 
 def sample(prediction, temperature = 1.0) :
     prediction = np.asarray(prediction).astype('float64')
@@ -187,19 +191,21 @@ class OutputPrediction(Callback) :
 pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
-STEPS_PER_EPOCH = int((total_word_count // BATCH_SIZE) * STEP_EPOCH_RATE)
-learning_rate = 0.001
+if MAX_TIMESTEP :
+    STEPS_PER_EPOCH = int((total_word_count // BATCH_SIZE) * STEP_EPOCH_RATE)
+else :
+    STEPS_PER_EPOCH = int(len(page_list) * STEP_EPOCH_RATE)
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
 print("max time step:", MAX_TIMESTEP, "\nrnn units:", RNN_UNIT, "\nbatch size:", BATCH_SIZE, "\nvalidation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
-print("step per epoch:", STEPS_PER_EPOCH, "\nlearning_rate:", learning_rate)
+print("step per epoch:", STEPS_PER_EPOCH, "\nlearning_rate:", LEARNING_RATE)
 
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
 else :
-    sgd = optimizers.SGD(lr = learning_rate, momentum = 0.9, nesterov = True, decay = 0.0)
-    rmsprop = optimizers.RMSprop(lr = learning_rate, decay = 0.0)
-    adam = optimizers.Adam(lr = learning_rate, decay = 0.0)
+    sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.9, nesterov = True, decay = 0.0)
+    rmsprop = optimizers.RMSprop(lr = LEARNING_RATE, decay = 0.0)
+    adam = optimizers.Adam(lr = LEARNING_RATE, decay = 0.0)
     
     ## make model
     input_layer = Input([MAX_TIMESTEP, WV_SIZE])
@@ -210,7 +216,10 @@ else :
     
     for i, v in enumerate(RNN_UNIT) :
         is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or MAX_TIMESTEP == None
-        rnn_layer = LSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
+        if MAX_TIMESTEP == None :
+            rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
+        else :
+            rnn_layer = LSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
         rnn_layer = BatchNormalization()(rnn_layer)
     if USE_ATTENTION :
         print(rnn_layer.shape)
@@ -243,6 +252,6 @@ model.fit_generator(generator = generate_sentences(MAX_TIMESTEP, BATCH_SIZE, zer
 if MAX_TIMESTEP :
     model.save(SAVE_MODEL_NAME)
 else :
-    model_pred_last.(SAVE_MODEL_NAME)
+    model_pred_last.save(SAVE_MODEL_NAME)
 
 
