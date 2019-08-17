@@ -2,7 +2,7 @@ import os
 import random
 import h5py
 import numpy as np
-import train_w2v_model as wvparam
+import train_w2v as wvparam
 from keras.models import load_model
 from gensim.models import word2vec
 

@@ -3,6 +3,7 @@ import re
 import os
 import sys
 import numpy as np
+from configure import *
 from gensim.models import word2vec
 
 PROC_PATH = "processed_posts/"
@@ -21,23 +22,9 @@ def get_pagename_list(path) :
     l = os.listdir(path)
     return sorted(l, key = sort_file_name_as_int)
 
-PAGENAME_LIST = get_pagename_list(PROC_PATH)
+PAGENAME_LIST = get_pagename_list(CUT_PATH if W2V_BY_VOCAB else PROC_PATH)
 
-W2V_BY_VOCAB = True # if False: Create w2v model by each character
-
-START_MARK = 'š'
-
-USE_ENDING_MARK = True
-ENDING_MARK = "ê"
-
-W2V_MIN_COUNT_BY_VOCAB = 6
-W2V_MIN_COUNT_BY_CHAR = 3
-W2V_ITER = 6
-WV_SIZE = 200
-
-w2v_train_list = []
-
-def get_train_data(page_length_min = 3, sentence_length_min = 0) :
+def get_train_data(page_length_min = 4, page_length_max = None, line_length_min = 1, line_length_max = None) :
     '''
     return page_list, total_word_count
     '''
@@ -49,7 +36,12 @@ def get_train_data(page_length_min = 3, sentence_length_min = 0) :
             line_list = open(CUT_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()
         else :
             line_list = open(PROC_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()
-            
+        
+        if line_length_min :
+            if len(line_list) < line_length_min : continue
+        elif line_length_max :
+            if len(line_list) > line_length_max : line_list = line_list[ : line_length_max]
+        
         # get words from this page
         if W2V_BY_VOCAB :
             this_page_words = [START_MARK]
@@ -62,11 +54,12 @@ def get_train_data(page_length_min = 3, sentence_length_min = 0) :
             if re.match(r"^(.{1,12})\n", line) : continue # ignore texts in images
             if line == "\n" : continue 
             if W2V_BY_VOCAB : line = line.split() + ['\n']
-            if i != 0 and len(line) < sentence_length_min : continue
             this_page_words += line
+            if page_length_max :
+                if this_page_words > page_length_max : break
         # if this page is too short : ignore
-        if len(this_page_words) < page_length_min :
-            continue
+        if page_length_min :
+            if len(this_page_words) < page_length_min : continue
         total_word_count += len(this_page_words)
         # put ending character at the end of a page
         if USE_ENDING_MARK :
