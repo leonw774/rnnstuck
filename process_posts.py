@@ -2,9 +2,9 @@ import os
 import re
 import jieba_zhtw as jb
 
-POST_PATH = "_posts/"
-PROC_PATH = "processed_posts/"
-CUT_PATH = "cut_posts/"
+POST_PATH = "./_posts/"
+PROC_PATH = "./processed_posts/"
+CUT_PATH = "./cut_posts/"
 WRITE_BLOG_RAW = False
 
 filename_list = []
@@ -106,6 +106,7 @@ for file_i, filename in enumerate(filename_list) :
     post_string = re.sub("&nbsp;", " ", post_string)
     post_string = re.sub("&gt;", ">", post_string)
     post_string = re.sub("&#42;", "*", post_string)
+    post_string = re.sub("&#124;", "|", post_string)
     post_string = re.sub("&amp;", "&", post_string)
     new_file = open(PROC_PATH + str(file_i) + ".txt", 'w', encoding = 'utf-8-sig')
     new_file.write(post_string)

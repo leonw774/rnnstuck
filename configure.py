@@ -1,6 +1,6 @@
 # fetch posts
 PAGE_LENGTH_MAX = 5000 # set None to be unlimited
-PAGE_LENGTH_MIN = 16
+PAGE_LENGTH_MIN = 32
 LINE_LENGTH_MAX = 32
 LINE_LENGTH_MIN = 2
 
@@ -15,7 +15,7 @@ W2V_ITER = 6
 WV_SIZE = 200
 
 # training data configure
-MAX_TIMESTEP = None # set None to be unlimited
+MAX_TIMESTEP = 32 # set None to be unlimited
 FIXED_TIMESTEP = False
 if FIXED_TIMESTEP and MAX_TIMESTEP > PAGE_LENGTH_MIN : MAX_TIMESTEP = PAGE_LENGTH_MIN
 ZERO_OFFSET = False # only valid when FIXED_TIMESTEP == False
@@ -24,11 +24,11 @@ USE_SAVED_MODEL = False
 SAVE_MODEL_NAME = "rnnstuck_model.h5"
 
 # LSTM setting
-RNN_UNIT = [128] # nvidia gt730 gpu: lstm(300) is limit
-USE_ATTENTION = True and MAX_TIMESTEP != None
+RNN_UNIT = [32] # nvidia gt730 gpu: lstm(300) is limit
+USE_ATTENTION = False and (MAX_TIMESTEP != None)
 VOCAB_SIZE = -1
-BATCH_SIZE = 256
-EPOCHS = 24
+BATCH_SIZE = 128
+EPOCHS = 10
 VALIDATION_NUMBER = 100
 
 OUTPUT_NUMBER = 4
@@ -41,5 +41,5 @@ LR_DECAY_INTV = 2
 LR_DECAY_POW_MAX = 8
 
 EARLYSTOP_MIN_DELTA = 0.01
-EARLYSTOP_PATIENCE = EPOCHS // 4
+EARLYSTOP_PATIENCE = 4 if (EPOCHS < 12) else EPOCHS // 4
 

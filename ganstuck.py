@@ -1,9 +1,10 @@
-﻿import os
+import os
 import re
 import sys
 import numpy as np
 import math
 import h5py
+import datetime
 from configure import *
 from train_w2v import *
 
@@ -12,7 +13,7 @@ from keras import activations, optimizers
 from keras import backend as K
 from keras.models import Model, load_model
 from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping
-from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
+from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, SimpleRNN, TimeDistributed
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 # -1 : Use CPU; 0 or 1 : Use GPU
@@ -66,7 +67,7 @@ def make_input_matrix(word_list, sentence_length_limit = None) :
     return input_matrix
     
 def make_label_matrix(word_list) :
-    label_matrix = np.zeros([1, len(word_list), 1], dtype=np.int32)
+    label_matrix = np.zeros([1, len(word_list), 1], dtype = int)
     word_list = word_list[1 : ] # delete start mark
     for i, word in enumerate(word_list) :
         try :
@@ -93,10 +94,9 @@ def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
     is_maxtimestep_none = (max_timestep == None)
     end_mark_factor = max_timestep if max_timestep else OUTPUT_TIME_STEP
     print("end_mark_factor:", end_mark_factor)
-    print_counter = 0
     
     x = np.zeros((batch_size, max_timestep, WV_SIZE))
-    y = np.zeros((batch_size, 1))
+    y = np.zeros((batch_size, 1), dtype = int)
     
     while 1 :
         if is_maxtimestep_none : max_timestep = np.random.randint(end_mark_factor)
@@ -121,36 +121,26 @@ def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
             y[i] = label_data_list[n][:, answer]
             i += 1
         # end while i < batch_size
-        '''
-        if print_counter < 1 :
-            print(x.shape, y.shape)
-            print(word_vector.wv.index2word[int(y[0, :])])
-            print_counter += 1
-        '''
         yield x, y
     # end while
 # end def generate_random_sentences
         
 def generate_post_as_sentence(max_timestep, batch_size, zero_offset = False) :
-    train_input_length = len(train_data_list)
+    train_in_len = len(train_data_list)
     n = 0
     #print(train_data_list[0].shape, label_data_list[0].shape)
     while 1 :
-        yield train_data_list[n], label_data_list[n]
-        n = (n + 1) % train_input_length
+        max_post_length = min([train_data_list[(n + b) % train_in_len].shape[1] for b in range(batch_size)])
+        post_length = np.random.randint(1, max_post_length)
+        x = np.zeros((batch_size, post_length, WV_SIZE))
+        y = np.zeros((batch_size, 1), dtype = int)
+        for b in range(batch_size) :
+            x[b] = train_data_list[(n + b) % train_in_len][:, post_length]
+            y[b] = label_data_list[(n + b) % train_in_len][:, post_length]
+        yield x, y
+        n = (n + batch_size) % train_in_len
 
 ### CALLBACK FUNCTIONS ###
-def sparse_categorical_perplexity(y_true, y_pred) :
-    return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
-    
-def lrate_epoch_decay(epoch) :
-    init_lr = LEARNING_RATE
-    e = min(LR_DECAY_POW_MAX, (epoch + 1) // LR_DECAY_INTV) # 2 epoches per decay, with max e = 8
-    return init_lr * math.pow(LR_DECAY, e)
-    
-lr_scheduler = LearningRateScheduler(lrate_epoch_decay)
-early_stop = EarlyStopping(monitor = "loss", min_delta = EARLYSTOP_MIN_DELTA, patience = EARLYSTOP_PATIENCE)
-
 def sample(prediction, temperature = 1.0) :
     prediction = np.asarray(prediction).astype('float64')
     prediction = np.log(prediction) / temperature
@@ -174,7 +164,7 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
 
 def output_to_file(filename, output_number, max_output_length) :
     outfile = open(filename, "w+", encoding = "utf-8-sig")
-    predict_model = model if MAX_TIMESTEP else model_pred_last
+    predict_model = Gmodel
     for out_i in range(output_number) :
         output_sentence = predict_output_sentence(predict_model, 0.9, max_output_length, np.random.choice(page_list)[0 : 2])
         output_string = ""
@@ -184,13 +174,10 @@ def output_to_file(filename, output_number, max_output_length) :
         outfile.write(">>>>>>>>\n")
     outfile.close()
 
-class OutputPrediction(Callback) :
-    def on_epoch_end(self, epoch, logs={}) :
-        output_to_file("output.txt", 4, OUTPUT_TIME_STEP)
+sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.9, nesterov = True, decay = 0.0)
+d_adam = optimizers.Adam(lr = LEARNING_RATE * 0.1, decay = 0.0)
+am_adam = optimizers.Adam(lr = LEARNING_RATE, decay = 0.0)
 
-pred_outputer = OutputPrediction()
-
-### NETWORK MODEL ###
 if MAX_TIMESTEP :
     STEPS_PER_EPOCH = int((total_word_count // BATCH_SIZE) * STEP_EPOCH_RATE)
 else :
@@ -200,58 +187,124 @@ print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
 print("max time step:", MAX_TIMESTEP, "\nrnn units:", RNN_UNIT, "\nbatch size:", BATCH_SIZE, "\nvalidation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
 print("step per epoch:", STEPS_PER_EPOCH, "\nlearning_rate:", LEARNING_RATE)
 
-if USE_SAVED_MODEL :
-    model = load_model(SAVE_MODEL_NAME)
-else :
-    sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.9, nesterov = True, decay = 0.0)
-    rmsprop = optimizers.RMSprop(lr = LEARNING_RATE, decay = 0.0)
-    adam = optimizers.Adam(lr = LEARNING_RATE, decay = 0.0)
-    
-    ## make model
-    input_layer = Input([MAX_TIMESTEP, WV_SIZE])
-    if not FIXED_TIMESTEP and MAX_TIMESTEP :
-        rnn_layer = Masking(mask_value = 0.)(input_layer)
-    else :
-        rnn_layer = input_layer
-    
-    for i, v in enumerate(RNN_UNIT) :
-        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or MAX_TIMESTEP == None
-        if MAX_TIMESTEP == None :
-            rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
+### GENERATIVE MODEL ###
+def get_gen_model() :
+    if USE_SAVED_MODEL :
+        Gmodel = load_model(SAVE_MODEL_NAME)
+    else :       
+        ## make model
+        input_layer = Input([MAX_TIMESTEP, WV_SIZE])
+        if not FIXED_TIMESTEP and MAX_TIMESTEP :
+            rnn_layer = Masking(mask_value = 0.)(input_layer)
         else :
-            rnn_layer = LSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
-        rnn_layer = BatchNormalization()(rnn_layer)
-    if USE_ATTENTION :
-        print(rnn_layer.shape)
-        attention = Dense(1, activation = "softmax")(rnn_layer)
-        print(attention.shape)
-        postproc_layer = multiply([attention, rnn_layer])
-        postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
-        postproc_layer = BatchNormalization()(postproc_layer)
-    else :
-        postproc_layer = rnn_layer
-    guess_next = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
-    model = Model(input_layer, guess_next)
-    model.compile(loss = 'sparse_categorical_crossentropy', optimizer = rmsprop, metrics = ["sparse_categorical_accuracy"])
-    
-    if MAX_TIMESTEP == None :
-        guess_last = Lambda(lambda x: x[:, -1])(guess_next)
-        model_pred_last = Model(input_layer, guess_last)
- 
-model.summary()
+            rnn_layer = input_layer
+        
+        for i, v in enumerate(RNN_UNIT) :
+            is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or MAX_TIMESTEP == None
+            if MAX_TIMESTEP == None :
+                rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
+            else :
+                rnn_layer = LSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
+            rnn_layer = BatchNormalization()(rnn_layer)
+        if USE_ATTENTION :
+            print(rnn_layer.shape)
+            attention = Dense(1, activation = "softmax")(rnn_layer)
+            print(attention.shape)
+            postproc_layer = multiply([attention, rnn_layer])
+            postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
+            postproc_layer = BatchNormalization()(postproc_layer)
+        else :
+            postproc_layer = rnn_layer
+        guess_next = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
+        if MAX_TIMESTEP == None :
+            guess_last = Lambda(lambda x: x[:, -1])(guess_next)
+            Gmodel = Model(input_layer, guess_last)
+        else :
+            Gmodel = Model(input_layer, guess_next)
+    return Gmodel
+### END GENERATIVE MODEL ###
 
-generate_sentences = generate_random_sentences if MAX_TIMESTEP else generate_post_as_sentence
+### DESCRIMINATIVE MODEL ###
+def get_dis_model() :
+    input_layer_sentence = Input([MAX_TIMESTEP, WV_SIZE])
+    input_layer_next_word = Input([VOCAB_SIZE])
+    _, rnn_state = SimpleRNN(RNN_UNIT[0], return_state = True)(input_layer_sentence)
+    conc_layer = Concatenate()([rnn_state, input_layer_next_word])
+    guess_layer = Dense(1, activation = "sigmoid")(conc_layer)
+    Dmodel = Model([input_layer_sentence, input_layer_next_word], guess_layer)
+    return Dmodel
 
-model.fit_generator(generator = generate_sentences(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET),
-                    steps_per_epoch = STEPS_PER_EPOCH, 
-                    epochs = EPOCHS, 
-                    verbose = 1,
-                    callbacks = [lr_scheduler, early_stop, pred_outputer],
-                    validation_data = generate_sentences(MAX_TIMESTEP, VALIDATION_NUMBER, zero_offset = True), 
-                    validation_steps = 1)
+def noised_binary_accuracy(y_true, y_pred):
+    return K.mean(K.equal(K.round(y_true), K.round(y_pred)), axis=-1)
+
+Dmodel = get_dis_model()
+Dmodel.compile(optimizer = d_adam, loss = ['mse'], metrics = [noised_binary_accuracy])
+Dmodel.summary()
+### END DESCRIMINATIVE MODEL ###
+
+### MAKE ADVERSARIAL MODEL ###
+Gmodel = get_gen_model()
+Dmodel.trainable = False
+X = Input([MAX_TIMESTEP, WV_SIZE])
+Pred_Y = Gmodel(X)
+Guess = Dmodel([X, Pred_Y])
+Amodel = Model(X, [Guess, Pred_Y])
+Amodel.compile(optimizer = am_adam, loss = ["mse", "sparse_categorical_crossentropy"])
+Amodel.summary()
+### END ADVERSARIAL MODEL ###
+
 if MAX_TIMESTEP :
-    model.save(SAVE_MODEL_NAME)
+    generate_sentences = generate_random_sentences(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET) 
 else :
-    model_pred_last.save(SAVE_MODEL_NAME)
+    generate_sentences = generate_post_as_sentence(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET)
 
+def softmax(x) :
+    return np.exp(x) / np.sum(np.exp(x), axis = 0)
 
+GMODEL_TRAIN_RATIO = 8
+start_time = datetime.datetime.now()
+d_acc_unbalanced = 0
+for e in range(EPOCHS * STEPS_PER_EPOCH) :
+    x, y_true = next(generate_sentences)
+    y_true = np.squeeze(y_true)
+    #print(x.shape, y_true.shape)
+    # use Gmodel to make training data
+    D_y_pred = Gmodel.predict(x)
+    D_y_true = np.random.random(size = [BATCH_SIZE, VOCAB_SIZE])
+    for b in range(BATCH_SIZE) :
+        D_y_true[b, y_true[b]] *= 100.0
+    D_y_true = softmax(D_y_true)
+    #print(D_y_true, D_y_pred)
+
+    # train on Dmodel
+    d_ans_true = np.full((BATCH_SIZE, 1), 1.0)
+    d_ans_false = np.full((BATCH_SIZE, 1), 0.0)
+    d_loss_t, d_acc_t = Dmodel.train_on_batch([x, D_y_true], d_ans_true)
+    d_loss_f, d_acc_f = Dmodel.train_on_batch([x, D_y_pred], d_ans_false)
+    d_loss = 0.5 * d_loss_f + 0.5 * d_loss_t
+    d_acc = 0.5 * d_acc_f + 0.5 * d_acc_t
+
+    # Emergency stop:
+    if d_acc >= 0.66 or d_acc <= 0.33 : d_acc_unbalanced += 1
+    elif d_acc_unbalanced > 0 : d_acc_unbalanced = 0
+    if d_acc_unbalanced >= 20 :
+        print("break: d_acc_unbalanced!")
+        break
+
+    # train on Gmodel
+    amg_loss = 0
+    for _ in range(GMODEL_TRAIN_RATIO) :
+        x, y_true = next(generate_sentences)
+        amg_loss = Amodel.train_on_batch(x, [d_ans_true, y_true])[1]
+    amg_loss /= GMODEL_TRAIN_RATIO
+    
+    if e % 100 == 0 :
+        output_to_file("output.txt", 4, OUTPUT_TIME_STEP)
+    
+    # output loss to file and screen
+    if e % 10 == 0 :
+        end_time = datetime.datetime.now() - start_time
+        print("%d/%d, dloss: %.3f, dacc: %.3f, amg_loss: %.3f, t: %s" % (e, EPOCHS, d_loss, d_acc, amg_loss, end_time))
+
+output_to_file("output.txt", 4, OUTPUT_TIME_STEP)
+Gmodel.save(SAVE_MODEL_NAME)
