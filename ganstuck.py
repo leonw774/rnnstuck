@@ -13,7 +13,7 @@ from keras import activations, optimizers
 from keras import backend as K
 from keras.models import Model, load_model
 from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping
-from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, SimpleRNN, TimeDistributed
+from keras.layers import Activation, Bidirectional, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, SimpleRNN, TimeDistributed
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 # -1 : Use CPU; 0 or 1 : Use GPU
@@ -89,54 +89,29 @@ for page in page_list :
     label_data_list.append(make_label_matrix(page))
 
 # make batch training data
-def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
-    train_input_length = len(train_data_list)
-    is_maxtimestep_none = (max_timestep == None)
-    end_mark_factor = max_timestep if max_timestep else OUTPUT_TIME_STEP
-    print("end_mark_factor:", end_mark_factor)
-    
-    x = np.zeros((batch_size, max_timestep, WV_SIZE))
-    y = np.zeros((batch_size, 1), dtype = int)
-    
-    while 1 :
-        if is_maxtimestep_none : max_timestep = np.random.randint(end_mark_factor)
-        i = 0
-        while(i < batch_size) :
-            n = np.random.randint(train_input_length)
-            is_no_endmark = int((np.random.randint(end_mark_factor) + 1) / end_mark_factor)
-            if is_maxtimestep_none : max_timestep = train_data_list[n].shape[1]
-            # decide answer, this number is INCLUSIVE
-            # and then, decide timestep length
-            if FIXED_TIMESTEP :
-                answer = np.random.randint(max_timestep, train_data_list[n].shape[1]) - is_no_endmark
-                time_step = max_timestep
-            elif zero_offset :
-                answer = np.random.randint(0, min(train_data_list[n].shape[1] - is_no_endmark, max_timestep))
-                time_step = answer + 1 # the length from 0 to answer is answer+1
-            else :
-                answer = np.random.randint(0, train_data_list[n].shape[1] - is_no_endmark)
-                time_step = np.random.randint(1, min(answer + 2, max_timestep + 1))
-            x[i, : time_step] = train_data_list[n][:, answer + 1 - time_step : answer + 1]
-            # answer + 1 because need to include train_data_list[answer]
-            y[i] = label_data_list[n][:, answer]
-            i += 1
-        # end while i < batch_size
-        yield x, y
-    # end while
-# end def generate_random_sentences
-        
-def generate_post_as_sentence(max_timestep, batch_size, zero_offset = False) :
+def generate_train_data(max_timestep, batch_size, zero_offset = False) :
     train_in_len = len(train_data_list)
     n = 0
     #print(train_data_list[0].shape, label_data_list[0].shape)
     while 1 :
-        max_post_length = min([train_data_list[(n + b) % train_in_len].shape[1] for b in range(batch_size)])
-        post_length = np.random.randint(1, max_post_length)
-        x = np.zeros((batch_size, post_length, WV_SIZE))
+        if max_timestep :
+            post_length = max_timestep
+        else :
+            max_post_length = min([train_data_list[(n + b) % train_in_len].shape[1] for b in range(batch_size)])
+            batch_post_length = np.random.randint(1, max_post_length)
+
+        x = np.zeros((batch_size, batch_post_length, WV_SIZE))
         y = np.zeros((batch_size, 1), dtype = int)
+
         for b in range(batch_size) :
-            x[b] = train_data_list[(n + b) % train_in_len][:, post_length]
-            y[b] = label_data_list[(n + b) % train_in_len][:, post_length]
+            post_num = (n + b) % train_in_len
+            post_length = np.random.randint(1, batch_post_length + 1)
+            if zero_offset :
+                answer = post_length - 1
+            else :
+                answer = np.random.randint(post_length, train_data_list[post_num].shape[1])
+            x[b, : post_length] = train_data_list[post_num][:, answer - (post_length - 1) : answer + 1]
+            y[b] = label_data_list[post_num][:, answer]
         yield x, y
         n = (n + batch_size) % train_in_len
 
@@ -165,7 +140,7 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
 def output_to_file(filename, output_number, max_output_length) :
     outfile = open(filename, "w+", encoding = "utf-8-sig")
     predict_model = Gmodel
-    for out_i in range(output_number) :
+    for _ in range(output_number) :
         output_sentence = predict_output_sentence(predict_model, 0.9, max_output_length, np.random.choice(page_list)[0 : 2])
         output_string = ""
         for word in output_sentence :
@@ -189,39 +164,30 @@ print("step per epoch:", STEPS_PER_EPOCH, "\nlearning_rate:", LEARNING_RATE)
 
 ### GENERATIVE MODEL ###
 def get_gen_model() :
-    if USE_SAVED_MODEL :
-        Gmodel = load_model(SAVE_MODEL_NAME)
-    else :       
-        ## make model
-        input_layer = Input([MAX_TIMESTEP, WV_SIZE])
-        if not FIXED_TIMESTEP and MAX_TIMESTEP :
-            rnn_layer = Masking(mask_value = 0.)(input_layer)
-        else :
-            rnn_layer = input_layer
-        
-        for i, v in enumerate(RNN_UNIT) :
-            is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or MAX_TIMESTEP == None
-            if MAX_TIMESTEP == None :
-                rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
-            else :
-                rnn_layer = LSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
-            rnn_layer = BatchNormalization()(rnn_layer)
-        if USE_ATTENTION :
-            print(rnn_layer.shape)
-            attention = Dense(1, activation = "softmax")(rnn_layer)
-            print(attention.shape)
-            postproc_layer = multiply([attention, rnn_layer])
-            postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
-            postproc_layer = BatchNormalization()(postproc_layer)
-        else :
-            postproc_layer = rnn_layer
-        guess_next = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
+    input_layer = Input([MAX_TIMESTEP, WV_SIZE])
+    if MAX_TIMESTEP :
+        rnn_layer = Masking(mask_value = 0.)(input_layer)
+    else :
+        rnn_layer = input_layer
+    
+    for i, v in enumerate(RNN_UNIT) :
+        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or MAX_TIMESTEP == None
         if MAX_TIMESTEP == None :
-            guess_last = Lambda(lambda x: x[:, -1])(guess_next)
-            Gmodel = Model(input_layer, guess_last)
+            rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
         else :
-            Gmodel = Model(input_layer, guess_next)
-    return Gmodel
+            rnn_layer = LSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
+        rnn_layer = Dropout(0.2)(rnn_layer)
+    if USE_ATTENTION :
+        print(rnn_layer.shape)
+        attention = Dense(1, activation = "softmax")(rnn_layer)
+        print(attention.shape)
+        postproc_layer = multiply([attention, rnn_layer])
+        postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
+        postproc_layer = Dropout(0.2)(postproc_layer)
+    else :
+        postproc_layer = rnn_layer
+    guess_next = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
+    return Model(input_layer, guess_next)
 ### END GENERATIVE MODEL ###
 
 ### DESCRIMINATIVE MODEL ###
@@ -253,11 +219,6 @@ Amodel.compile(optimizer = am_adam, loss = ["mse", "sparse_categorical_crossentr
 Amodel.summary()
 ### END ADVERSARIAL MODEL ###
 
-if MAX_TIMESTEP :
-    generate_sentences = generate_random_sentences(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET) 
-else :
-    generate_sentences = generate_post_as_sentence(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET)
-
 def softmax(x) :
     return np.exp(x) / np.sum(np.exp(x), axis = 0)
 
@@ -265,7 +226,7 @@ GMODEL_TRAIN_RATIO = 8
 start_time = datetime.datetime.now()
 d_acc_unbalanced = 0
 for e in range(EPOCHS * STEPS_PER_EPOCH) :
-    x, y_true = next(generate_sentences)
+    x, y_true = next(generate_train_data)
     y_true = np.squeeze(y_true)
     #print(x.shape, y_true.shape)
     # use Gmodel to make training data
@@ -294,7 +255,7 @@ for e in range(EPOCHS * STEPS_PER_EPOCH) :
     # train on Gmodel
     amg_loss = 0
     for _ in range(GMODEL_TRAIN_RATIO) :
-        x, y_true = next(generate_sentences)
+        x, y_true = next(generate_train_data)
         amg_loss = Amodel.train_on_batch(x, [d_ans_true, y_true])[1]
     amg_loss /= GMODEL_TRAIN_RATIO
     
