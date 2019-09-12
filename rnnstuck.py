@@ -11,7 +11,7 @@ from keras import activations, optimizers
 from keras import backend as K
 from keras.models import Model, load_model
 from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping
-from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
+from keras.layers import Activation, Bidirectional, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 # -1 : Use CPU; 0 or 1 : Use GPU
@@ -58,7 +58,7 @@ def make_input_matrix(word_list, sentence_length_limit = None) :
         except KeyError :
             for c in word :
                 try :
-                    input_matrix[0, i] = word_vector[word]
+                    input_matrix[0, i] = word_vector[c]
                 except KeyError :
                     continue
     return input_matrix
@@ -72,7 +72,7 @@ def make_label_matrix(word_list) :
         except KeyError :
             for c in word :
                 try :
-                    label_matrix[0, i, 0] = word_vector.vocab[word].index
+                    label_matrix[0, i, 0] = word_vector.vocab[c].index
                 except KeyError :
                     continue
     # don't want last element in label_matrix be zero vecter, so make it to be ending mark
@@ -84,31 +84,27 @@ label_data_list = []
 for page in page_list :
     train_data_list.append(make_input_matrix(page))
     label_data_list.append(make_label_matrix(page))
-
+'''
 # make batch training data
-def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
+def generate_train_data(max_timestep, batch_size, zero_offset = False) :
     train_input_length = len(train_data_list)
     is_maxtimestep_none = (max_timestep == None)
     end_mark_factor = max_timestep if max_timestep else OUTPUT_TIME_STEP
     print("end_mark_factor:", end_mark_factor)
-    print_counter = 0
-    
-    x = np.zeros((batch_size, max_timestep, WV_SIZE))
-    y = np.zeros((batch_size, 1))
-    
+        
     while 1 :
         if is_maxtimestep_none : max_timestep = np.random.randint(end_mark_factor)
+        x = np.zeros((batch_size, max_timestep, WV_SIZE))
+        y = np.zeros((batch_size, 1))
         i = 0
         while(i < batch_size) :
             n = np.random.randint(train_input_length)
             is_no_endmark = int((np.random.randint(end_mark_factor) + 1) / end_mark_factor)
             if is_maxtimestep_none : max_timestep = train_data_list[n].shape[1]
+            
             # decide answer, this number is INCLUSIVE
             # and then, decide timestep length
-            if FIXED_TIMESTEP :
-                answer = np.random.randint(max_timestep, train_data_list[n].shape[1]) - is_no_endmark
-                time_step = max_timestep
-            elif zero_offset :
+            if zero_offset :
                 answer = np.random.randint(0, min(train_data_list[n].shape[1] - is_no_endmark, max_timestep))
                 time_step = answer + 1 # the length from 0 to answer is answer+1
             else :
@@ -119,22 +115,39 @@ def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
             y[i] = label_data_list[n][:, answer]
             i += 1
         # end while i < batch_size
-        '''
-        if print_counter < 1 :
-            print(x.shape, y.shape)
-            print(word_vector.wv.index2word[int(y[0, :])])
-            print_counter += 1
-        '''
         yield x, y
     # end while
-# end def generate_random_sentences
-        
-def generate_post_as_sentence(max_timestep, batch_size, zero_offset = False) :
-    train_input_length = len(train_data_list)
+'''
+def generate_train_data(max_timestep, batch_size, zero_offset = False) :
+    train_in_len = len(train_data_list)
+    n = 0
     #print(train_data_list[0].shape, label_data_list[0].shape)
     while 1 :
-        n = np.random.randint(train_input_length)
-        yield train_data_list[n], label_data_list[n]
+        if max_timestep :
+            timestep = batch_length = max_timestep
+        elif zero_offset :
+            max_length = max([train_data_list[(n + b) % train_in_len].shape[1] for b in range(batch_size)])
+            batch_length = np.random.randint(1, max_length)
+        else :
+            max_length = min([train_data_list[(n + b) % train_in_len].shape[1] for b in range(batch_size)])
+            batch_length = np.random.randint(1, max_length)
+
+        x = np.zeros((batch_size, batch_length, WV_SIZE))
+        y = np.zeros((batch_size, 1), dtype = int)
+
+        for b in range(batch_size) :
+            post_num = (n + b) % train_in_len
+            if zero_offset :
+                timestep = np.random.randint(1, batch_length + 1)
+                timestep = min(timestep, train_data_list[post_num].shape[1] - 1)
+                answer = timestep - 1
+            else :
+                timestep = np.random.randint(1, batch_length + 1)
+                answer = np.random.randint(timestep, train_data_list[post_num].shape[1])
+            x[b, : timestep] = train_data_list[post_num][:, answer - (timestep - 1) : answer + 1]
+            y[b] = label_data_list[post_num][:, answer]
+        yield x, y
+        n = (n + batch_size) % train_in_len
 
 ### CALLBACK FUNCTIONS ###
 def sparse_categorical_perplexity(y_true, y_pred) :
@@ -156,9 +169,12 @@ def sample(prediction, temperature = 1.0) :
     return np.random.multinomial(1, prediction, 1)
     
 def predict_output_sentence(predict_model, temperature, max_output_length, initial_input_sentence = None) :
-    output_sentence = []
     if initial_input_sentence :
-        output_sentence += initial_input_sentence
+        output_sentence = initial_input_sentence
+    elif W2V_BY_VOCAB :
+        output_sentence = []
+    else :
+        output_sentence = ""
     for n in range(max_output_length) :
         input_array = make_input_matrix(output_sentence, sentence_length_limit = MAX_TIMESTEP)
         y_test = predict_model.predict(input_array)
@@ -171,9 +187,9 @@ def predict_output_sentence(predict_model, temperature, max_output_length, initi
 
 def output_to_file(filename, output_number, max_output_length) :
     outfile = open(filename, "w+", encoding = "utf-8-sig")
-    predict_model = model if MAX_TIMESTEP else model_pred_last
-    for out_i in range(output_number) :
-        output_sentence = predict_output_sentence(predict_model, 0.8, max_output_length, np.random.choice(page_list)[0 : 2])
+    for _ in range(output_number) :
+        seed = np.random.choice(page_list)[0 : 2]
+        output_sentence = predict_output_sentence(model, 0.9, max_output_length, seed)
         output_string = ""
         for word in output_sentence :
             output_string += word
@@ -189,7 +205,7 @@ pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
 if MAX_TIMESTEP :
-    STEPS_PER_EPOCH = int((total_word_count // BATCH_SIZE) * STEP_EPOCH_RATE)
+    STEPS_PER_EPOCH = int((total_word_count - len(page_list) * MAX_TIMESTEP) // BATCH_SIZE * STEP_EPOCH_RATE)
 else :
     STEPS_PER_EPOCH = int(len(page_list) * STEP_EPOCH_RATE)
 
@@ -206,7 +222,7 @@ else :
     
     ## make model
     input_layer = Input([MAX_TIMESTEP, WV_SIZE])
-    if not FIXED_TIMESTEP and MAX_TIMESTEP :
+    if MAX_TIMESTEP :
         rnn_layer = Masking(mask_value = 0.)(input_layer)
     else :
         rnn_layer = input_layer
@@ -214,41 +230,29 @@ else :
     for i, v in enumerate(RNN_UNIT) :
         is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or MAX_TIMESTEP == None
         if MAX_TIMESTEP == None :
-            rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
+            rnn_layer = Bidirectional(CuDNNLSTM(v, return_sequences = is_return_seq, stateful = False))(rnn_layer)
         else :
-            rnn_layer = LSTM(v, return_sequences = is_return_seq, stateful = False)(rnn_layer)
-        rnn_layer = BatchNormalization()(rnn_layer)
+            rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq, stateful = False))(rnn_layer)
+        rnn_layer = Dropout(0.2)(rnn_layer)
     if USE_ATTENTION :
-        print(rnn_layer.shape)
         attention = Dense(1, activation = "softmax")(rnn_layer)
-        print(attention.shape)
+        print("attention:", rnn_layer.shape, "to", attention.shape)
         postproc_layer = multiply([attention, rnn_layer])
         postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
-        postproc_layer = BatchNormalization()(postproc_layer)
+        postproc_layer = Dropout(0.2)(postproc_layer)
     else :
         postproc_layer = rnn_layer
     guess_next = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
     model = Model(input_layer, guess_next)
-    model.compile(loss = 'sparse_categorical_crossentropy', optimizer = rmsprop, metrics = ["sparse_categorical_accuracy"])
-    
-    if MAX_TIMESTEP == None :
-        guess_last = Lambda(lambda x: x[:, -1])(guess_next)
-        model_pred_last = Model(input_layer, guess_last)
- 
+    model.compile(loss = 'sparse_categorical_crossentropy', optimizer = adam, metrics = ["sparse_categorical_accuracy"])
+
 model.summary()
 
-generate_sentences = generate_random_sentences if MAX_TIMESTEP else generate_post_as_sentence
-
-model.fit_generator(generator = generate_sentences(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET),
+model.fit_generator(generator = generate_train_data(MAX_TIMESTEP, BATCH_SIZE, zero_offset = ZERO_OFFSET),
                     steps_per_epoch = STEPS_PER_EPOCH, 
                     epochs = EPOCHS, 
                     verbose = 1,
                     callbacks = [lr_scheduler, early_stop, pred_outputer],
-                    validation_data = generate_sentences(MAX_TIMESTEP, VALIDATION_NUMBER, zero_offset = True), 
+                    validation_data = generate_train_data(MAX_TIMESTEP, VALIDATION_NUMBER, zero_offset = True), 
                     validation_steps = 1)
-if MAX_TIMESTEP :
-    model.save(SAVE_MODEL_NAME)
-else :
-    model_pred_last.save(SAVE_MODEL_NAME)
-
-
+model.save(SAVE_MODEL_NAME)
