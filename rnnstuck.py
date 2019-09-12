@@ -6,7 +6,6 @@ import math
 import h5py
 from configure import *
 from train_w2v import *
-
 from gensim.models import word2vec
 from keras import activations, optimizers
 from keras import backend as K
@@ -20,8 +19,7 @@ from keras.layers import Activation, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, 
 print("\nW2V_BY_VOCAB: ", W2V_BY_VOCAB, "\nPAGE_LENGTH_MAX", PAGE_LENGTH_MAX, "\nPAGE_LENGTH_MIN", PAGE_LENGTH_MIN)
 if MAX_TIMESTEP :
     if MAX_TIMESTEP > PAGE_LENGTH_MIN :
-        print("Error: PAGE_LENGTH_MIN must bigger than MAX_TIMESTEP")
-        exit() 
+        print("Warning: PAGE_LENGTH_MIN must bigger than MAX_TIMESTEP")
 
 ### PREPARE TRAINING DATA ###
 page_list, total_word_count = get_train_data(page_length_min = PAGE_LENGTH_MIN, page_length_max = PAGE_LENGTH_MAX, line_length_min = LINE_LENGTH_MIN, line_length_max = LINE_LENGTH_MAX)
@@ -133,11 +131,10 @@ def generate_random_sentences(max_timestep, batch_size, zero_offset = False) :
         
 def generate_post_as_sentence(max_timestep, batch_size, zero_offset = False) :
     train_input_length = len(train_data_list)
-    n = 0
     #print(train_data_list[0].shape, label_data_list[0].shape)
     while 1 :
+        n = np.random.randint(train_input_length)
         yield train_data_list[n], label_data_list[n]
-        n = (n + 1) % train_input_length
 
 ### CALLBACK FUNCTIONS ###
 def sparse_categorical_perplexity(y_true, y_pred) :
@@ -176,7 +173,7 @@ def output_to_file(filename, output_number, max_output_length) :
     outfile = open(filename, "w+", encoding = "utf-8-sig")
     predict_model = model if MAX_TIMESTEP else model_pred_last
     for out_i in range(output_number) :
-        output_sentence = predict_output_sentence(predict_model, 0.75, max_output_length, np.random.choice(page_list)[0 : 2])
+        output_sentence = predict_output_sentence(predict_model, 0.8, max_output_length, np.random.choice(page_list)[0 : 2])
         output_string = ""
         for word in output_sentence :
             output_string += word

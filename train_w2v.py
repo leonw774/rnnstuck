@@ -49,10 +49,11 @@ def get_train_data(page_length_min = 4, page_length_max = None, line_length_min 
             this_page_words = START_MARK
         for i, line in enumerate(line_list) :
             if re.match(r"[\s\.\-/]{4,}", line) : continue # ignore morse code
-            if re.match(r"(hstwproject) | (zhhomestuck)", line) : continue # ignore meta text
-            if re.match(r"(^※) | (※[0-9])", line) : continue # ingore translator's notes
-            if re.match(r"^(.{1,12})\n", line) : continue # ignore texts in images
-            if line == "\n" : continue 
+            if re.match(r"(hstwproject | zhhomestuck)", line) : continue # ignore meta text
+            if re.match(r"(^※)", line) : continue # ingore translator's notes
+            if re.match(r"^\(.{1,12}\)\n", line) : continue # ignore texts in images
+            if line == "\n" : continue
+            line = re.sub("(※[0-9])", "", line) 
             if W2V_BY_VOCAB : line = line.split() + ['\n']
             this_page_words += line
             if page_length_max :
