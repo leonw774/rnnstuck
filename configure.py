@@ -22,9 +22,7 @@ SAVE_MODEL_NAME = "rnnstuck_model.h5"
 # LSTM setting
 MAX_TIMESTEP = 128 # set None to be unlimited
 RNN_UNIT = [100] # nvidia gt730 gpu: lstm(300) is limit
-USE_ATTENTION = True and MAX_TIMESTEP != None
-RNN_UNIT = [32] # nvidia gt730 gpu: lstm(300) is limit
-USE_ATTENTION = True or MAX_TIMESTEP == None
+USE_ATTENTION = True or MAX_TIMESTEP != None
 VOCAB_SIZE = -1
 BATCH_SIZE = 32
 EPOCHS = 100
@@ -33,7 +31,7 @@ VALIDATION_NUMBER = 100
 # training data configure
 FIXED_TIMESTEP = False
 if FIXED_TIMESTEP and MAX_TIMESTEP > PAGE_LENGTH_MIN : MAX_TIMESTEP = PAGE_LENGTH_MIN
-ZERO_OFFSET = False # only valid when FIXED_TIMESTEP == False
+ZERO_OFFSET = True # only valid when FIXED_TIMESTEP == False
 
 OUTPUT_NUMBER = 4
 OUTPUT_TIME_STEP = 128
