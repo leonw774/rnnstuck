@@ -124,7 +124,7 @@ def generate_train_data(max_timestep, batch_size, zero_offset = False) :
     #print(train_data_list[0].shape, label_data_list[0].shape)
     while 1 :
         if max_timestep :
-            timestep = batch_length = max_timestep
+            batch_length = max_timestep
         elif zero_offset :
             max_length = max([train_data_list[(n + b) % train_in_len].shape[1] for b in range(batch_size)])
             batch_length = np.random.randint(1, max_length)
@@ -137,13 +137,15 @@ def generate_train_data(max_timestep, batch_size, zero_offset = False) :
 
         for b in range(batch_size) :
             post_num = (n + b) % train_in_len
+            timestep = np.random.randint(1, min(train_data_list[post_num].shape[1], batch_length))
+            # 'answer' is the index of data in the label list (count from 0)
+            # a train-label in index of x is the next word of train-data in index of x
+            # so, if answer is 5, the longest train data we can get is at[0, 6], which is in length of 6
+            # in another way, it means for a timestep of y, the smallest answer is y - 1
             if zero_offset :
-                timestep = np.random.randint(1, batch_length + 1)
-                timestep = min(timestep, train_data_list[post_num].shape[1] - 1)
                 answer = timestep - 1
             else :
-                timestep = np.random.randint(1, batch_length + 1)
-                answer = np.random.randint(timestep, train_data_list[post_num].shape[1])
+                answer = np.random.randint(timestep - 1, train_data_list[post_num].shape[1])
             x[b, : timestep] = train_data_list[post_num][:, answer - (timestep - 1) : answer + 1]
             y[b] = label_data_list[post_num][:, answer]
         yield x, y
@@ -155,7 +157,7 @@ def sparse_categorical_perplexity(y_true, y_pred) :
     
 def lrate_epoch_decay(epoch) :
     init_lr = LEARNING_RATE
-    e = min(LR_DECAY_POW_MAX, (epoch + 1) // LR_DECAY_INTV) # 2 epoches per decay, with max e = 8
+    e = min(LR_DECAY_POW_MAX, (epoch + 1) // LR_DECAY_INTV) # INTV epoches per decay, with max e
     return init_lr * math.pow(LR_DECAY, e)
     
 lr_scheduler = LearningRateScheduler(lrate_epoch_decay)
