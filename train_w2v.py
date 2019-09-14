@@ -40,13 +40,14 @@ def get_train_data(page_length_min = 3, page_length_max = None, line_length_min 
         if line_length_min :
             if len(line_list) < line_length_min : continue
         elif line_length_max :
-            if len(line_list) > line_length_max : line_list = line_list[ : line_length_max]
+            if len(line_list) >= line_length_max : line_list = line_list[ : line_length_max]
         
         # get words from this page
-        if W2V_BY_VOCAB :
-            this_page_words = [START_MARK]
+        if USE_START_MARK :
+            this_page_words = [START_MARK] if W2V_BY_VOCAB else START_MARK
         else :
-            this_page_words = START_MARK
+            this_page_words = [] if W2V_BY_VOCAB else ""
+        
         for i, line in enumerate(line_list) :
             if (line == "\n" or 
                 re.match(r"[\s\.\-/]{4,}", line) or # ignore morse code
@@ -59,7 +60,9 @@ def get_train_data(page_length_min = 3, page_length_max = None, line_length_min 
             if W2V_BY_VOCAB : line = line.split() + ['\n']
             this_page_words += line
             if page_length_max :
-                if len(this_page_words) > page_length_max : break
+                if len(this_page_words) >= page_length_max : break
+        # because there is a line break at the end
+        this_page_words = this_page_words[ : -1]
         # if this page is too short : ignore
         if page_length_min :
             if len(this_page_words) < page_length_min : continue
@@ -73,16 +76,18 @@ def get_train_data(page_length_min = 3, page_length_max = None, line_length_min 
         page_list.append(this_page_words)
     return page_list, total_word_count
 
-def make_new_w2v(page_list) :
+def make_new_w2v(page_list, show_result = False) :
     word_model_name = "myword2vec_by_word.model" if W2V_BY_VOCAB else "myword2vec_by_char.model"
     word_model = word2vec.Word2Vec(page_list, iter = W2V_ITER, sg = 1, size = WV_SIZE, window = 6, workers = 4, min_count = (W2V_MIN_COUNT_BY_VOCAB if W2V_BY_VOCAB else W2V_MIN_COUNT_BY_CHAR))
     word_model.save(word_model_name)
     print("\nvector size: ", WV_SIZE, "\nvocab size: ", word_model.wv.syn0.shape[0])
-    print(word_model.wv.most_similar("貓", topn = 10))
+    print("貓\n", word_model.wv.most_similar("貓", topn = 10))
+    print("遊戲\n", word_model.wv.most_similar("遊戲", topn = 10))
+    print("幹\n", word_model.wv.most_similar("幹", topn = 10))
     
 if __name__ == "__main__" :
     p, c = get_train_data()
     print("total word count:", c)
-    make_new_w2v(p)
+    make_new_w2v(p, show_result = True)
     print("done.")
     
