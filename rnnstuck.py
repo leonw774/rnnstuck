@@ -14,32 +14,26 @@ from keras.models import Model, load_model
 from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping
 from keras.layers import Activation, Bidirectional, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 # -1 : Use CPU; 0 or 1 : Use GPU
+#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 print("\nW2V_BY_VOCAB: ", W2V_BY_VOCAB, "\nPAGE_LENGTH_MAX", PAGE_LENGTH_MAX, "\nPAGE_LENGTH_MIN", PAGE_LENGTH_MIN)
 if MAX_TIMESTEP :
     if MAX_TIMESTEP > PAGE_LENGTH_MIN :
         print("Warning: PAGE_LENGTH_MIN is smaller than MAX_TIMESTEP")
 
-### PREPARE TRAINING DATA ###
-page_list, total_word_count = get_train_data(page_length_min = PAGE_LENGTH_MIN, page_length_max = PAGE_LENGTH_MAX, line_length_min = LINE_LENGTH_MIN, line_length_max = LINE_LENGTH_MAX)
-random.shuffle(page_list)
-
-### LOAD WORD MODEL ###
-word_model_name = "myword2vec_by_word.model" if W2V_BY_VOCAB else "myword2vec_by_char.model"
-try :
-    word_model = word2vec.Word2Vec.load(word_model_name)
-except :
-    print("couldn't find wordvec model file", word_model_name, "exiting program...")
-    exit()
+### PREPARE TRAINING DATA AND WORD MODEL ###
+_p, _c = get_train_data()
+word_model = make_new_w2v(_p, show_result = True)
 word_vector = word_model.wv
 VOCAB_SIZE = word_vector.syn0.shape[0]
 del word_model
 
-print("total_word_count: ", total_word_count)
+page_list, train_word_count = get_train_data(page_length_min = PAGE_LENGTH_MIN, page_length_max = PAGE_LENGTH_MAX, line_length_min = LINE_LENGTH_MIN, line_length_max = LINE_LENGTH_MAX)
+random.shuffle(page_list)
+print("total word count:", _c)
+print("train word count:", train_word_count)
 print("vector size: ", WV_SIZE, "\nvocab size: ", VOCAB_SIZE)
-#print("\n貓:", word_vector.most_similar("貓", topn = 10))
 #for i in range(0, 10) : print(page_list[i])
 
 ### PREPARE TRAINING DATA ###
@@ -103,23 +97,26 @@ def generate_train_data(max_timestep, batch_size, zero_offset) :
     while 1 :
         batch_num = random.sample(range(0, train_list_len), batch_size)
         if max_timestep :
-            batch_length = max_timestep
-        elif zero_offset :
-            max_length = max([train_data_list[b].shape[1] for b in batch_num])
-            batch_length = random.randint(1, max_length)
-        else :
+            timestep_size = max_timestep
+        elif USE_SEQ_LABEL or not zero_offset :
             max_length = min([train_data_list[b].shape[1] for b in batch_num])
-            batch_length = random.randint(1, max_length)
+            timestep_size = random.randint(1, max_length)
+        else :
+            max_length = max([train_data_list[b].shape[1] for b in batch_num])
+            timestep_size = random.randint(1, max_length)
 
-        x = np.zeros((batch_size, batch_length, WV_SIZE))
+        x = np.zeros((batch_size, timestep_size, WV_SIZE))
         if USE_SEQ_LABEL :
-            y = np.zeros((batch_size, batch_length, 1), dtype = int)
+            y = np.zeros((batch_size, timestep_size, 1), dtype = int)
         else :
             y = np.zeros((batch_size, 1), dtype = int)
 
         for i, b in enumerate(batch_num) :
             this_data_length = train_data_list[b].shape[1]
-            timestep = random.randint(1, min(this_data_length, batch_length))
+            if USE_SEQ_LABEL :
+                timestep = min(this_data_length, timestep_size)
+            else :
+                timestep = random.randint(1, min(this_data_length, timestep_size))
             # 'answer' indocate a index of data in the label list (count from 0)
             # a train-label[x] is the one-hot rep of train-data[x+1]
             # so, if answer == 5, the longest train data we can get is [0 : 6], which is 6 in length
@@ -142,9 +139,12 @@ def generate_train_data(max_timestep, batch_size, zero_offset) :
 def sparse_categorical_perplexity(y_true, y_pred) :
     return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
 
-def sequential_label_sparse_categorical_accuracy(y_true, y_pred) :
-    # print(K.flatten(y_true).shape, K.flatten(K.cast(K.argmax(y_pred, axis = -1), K.floatx())).shape)
-    # the shape of y_true is (samples, timesteps, 1), after reshape it is (samples * timestep, 1)
+def sequential_sparse_categorical_crossentropy(y_true, y_pred) :
+    # the shape of y_true is (samples, timesteps, 1)
+    return K.sparse_categorical_crossentropy(y_true, y_pred, axis = 2)
+    
+def sequential_sparse_categorical_accuracy(y_true, y_pred) :
+    # the shape of y_true is (samples, timesteps, 1)
     return K.mean(K.cast(K.equal(K.flatten(y_true),
                                  K.flatten(K.cast(K.argmax(y_pred, axis = -1), K.floatx())))
                 , K.floatx()))
@@ -200,7 +200,7 @@ class OutputPrediction(Callback) :
 pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
-STEPS_PER_EPOCH = int((total_word_count - len(page_list) * 2) // BATCH_SIZE * STEP_EPOCH_RATE)
+STEPS_PER_EPOCH = int((train_word_count - len(page_list) * 2) // BATCH_SIZE * STEP_EPOCH_RATE)
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
 print("max time step:", MAX_TIMESTEP, "\nuse zero offest:", ZERO_OFFSET, "\nuse seq label:", USE_SEQ_LABEL, "\nrnn units:", RNN_UNIT, "\nbatch size:", BATCH_SIZE, "\nvalidation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
@@ -241,7 +241,7 @@ else :
         guess_last = Lambda(lambda x: x[:, -1])(guess)
         model = Model(input_layer, guess_last)
         model_train = Model(input_layer, guess)
-        model_train.compile(loss = "sparse_categorical_crossentropy", optimizer = adam, metrics = [sequential_label_sparse_categorical_accuracy])
+        model_train.compile(loss = sequential_sparse_categorical_crossentropy, optimizer = adam, metrics = [sequential_sparse_categorical_accuracy])
     else :
         model = Model(input_layer, guess)
         model_train = model

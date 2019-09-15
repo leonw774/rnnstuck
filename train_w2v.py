@@ -77,13 +77,17 @@ def get_train_data(page_length_min = 3, page_length_max = None, line_length_min 
     return page_list, total_word_count
 
 def make_new_w2v(page_list, show_result = False) :
+    print("make word model...")
     word_model_name = "myword2vec_by_word.model" if W2V_BY_VOCAB else "myword2vec_by_char.model"
     word_model = word2vec.Word2Vec(page_list, iter = W2V_ITER, sg = 1, size = WV_SIZE, window = 6, workers = 4, min_count = (W2V_MIN_COUNT_BY_VOCAB if W2V_BY_VOCAB else W2V_MIN_COUNT_BY_CHAR))
     word_model.save(word_model_name)
-    print("\nvector size: ", WV_SIZE, "\nvocab size: ", word_model.wv.syn0.shape[0])
-    print("貓\n", word_model.wv.most_similar("貓", topn = 10))
-    print("遊戲\n", word_model.wv.most_similar("遊戲", topn = 10))
-    print("幹\n", word_model.wv.most_similar("幹", topn = 10))
+    if show_result :
+        print("vector size: ", WV_SIZE, "\nvocab size: ", word_model.wv.syn0.shape[0])
+        print("貓\n", word_model.wv.most_similar("貓", topn = 10))
+        print("遊戲\n", word_model.wv.most_similar("遊戲", topn = 10))
+        print("幹\n", word_model.wv.most_similar("幹", topn = 10))
+    print("done.")
+    return word_model
     
 if __name__ == "__main__" :
     p, c = get_train_data()
