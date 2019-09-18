@@ -17,10 +17,9 @@ from keras.layers import Activation, Bidirectional, Concatenate, ConvLSTM2D, CuD
 # -1 : Use CPU; 0 or 1 : Use GPU
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
-print("\nW2V_BY_VOCAB: ", W2V_BY_VOCAB, "\nPAGE_LENGTH_MAX", PAGE_LENGTH_MAX, "\nPAGE_LENGTH_MIN", PAGE_LENGTH_MIN)
+print("\nW2V_BY_VOCAB:", W2V_BY_VOCAB, "\nPAGE_LENGTH_MAX", PAGE_LENGTH_MAX, "\nPAGE_LENGTH_MIN", PAGE_LENGTH_MIN, "\nLINE_LENGTH_MAX", LINE_LENGTH_MAX, "\nLINE_LENGTH_MIN", LINE_LENGTH_MIN)
 if MAX_TIMESTEP :
-    if MAX_TIMESTEP > PAGE_LENGTH_MIN :
-        print("Warning: PAGE_LENGTH_MIN is smaller than MAX_TIMESTEP")
+    if MAX_TIMESTEP > PAGE_LENGTH_MIN : print("Warning: PAGE_LENGTH_MIN is smaller than MAX_TIMESTEP")
 
 ### PREPARE TRAINING DATA AND WORD MODEL ###
 _p, _c = get_train_data()
@@ -92,27 +91,32 @@ for page in page_list :
     train_data_list.append(make_input_matrix(page))
     label_data_list.append(make_label_matrix(page))
 
-def generate_train_data(max_timestep, batch_size, zero_offset) :
-    train_list_len = len(train_data_list)
+train_test_split = len(page_list) * 9 // 10
+test_data_list = train_data_list[train_test_split : ]
+test_label_data_list = label_data_list[train_test_split : ]
+train_data_list = train_data_list[ : train_test_split]
+label_data_list = label_data_list[ : train_test_split]
+
+def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
     while 1 :
-        batch_num = random.sample(range(0, train_list_len), batch_size)
+        batch_num = random.sample(range(0, len(x)), batch_size)
         if max_timestep :
             timestep_size = max_timestep
         elif USE_SEQ_LABEL or not zero_offset :
-            max_length = min([train_data_list[b].shape[1] for b in batch_num])
+            max_length = min([x[b].shape[1] for b in batch_num])
             timestep_size = random.randint(1, max_length)
         else :
-            max_length = max([train_data_list[b].shape[1] for b in batch_num])
+            max_length = max([x[b].shape[1] for b in batch_num])
             timestep_size = random.randint(1, max_length)
 
-        x = np.zeros((batch_size, timestep_size, WV_SIZE))
+        bx = np.zeros((batch_size, timestep_size, WV_SIZE))
         if USE_SEQ_LABEL :
-            y = np.zeros((batch_size, timestep_size, 1), dtype = int)
+            by = np.zeros((batch_size, timestep_size, 1), dtype = int)
         else :
-            y = np.zeros((batch_size, 1), dtype = int)
+            by = np.zeros((batch_size, 1), dtype = int)
 
         for i, b in enumerate(batch_num) :
-            this_data_length = train_data_list[b].shape[1]
+            this_data_length = x[b].shape[1]
             if USE_SEQ_LABEL :
                 timestep = min(this_data_length, timestep_size)
             else :
@@ -126,14 +130,14 @@ def generate_train_data(max_timestep, batch_size, zero_offset) :
             else :
                 answer = random.randint(timestep, this_data_length) - 1
             #try :
-            x[i, : timestep] = train_data_list[b][:, answer - (timestep - 1) : answer + 1]
+            bx[i, : timestep] = x[b][:, answer - (timestep - 1) : answer + 1]
             if USE_SEQ_LABEL :
-                y[i, : timestep] = label_data_list[b][:, answer - (timestep - 1) : answer + 1]
+                by[i, : timestep] = y[b][:, answer - (timestep - 1) : answer + 1]
             else :
-                y[i] = label_data_list[b][:, answer]
+                by[i] = y[b][:, answer]
             #except :
             #    print("Index Error:", (this_data_length, answer, timestep))
-        yield x, y
+        yield bx, by
 
 ### CALLBACK FUNCTIONS ###
 def sparse_categorical_perplexity(y_true, y_pred) :
@@ -247,12 +251,14 @@ else :
         model_train = model
         model_train.compile(loss = "sparse_categorical_crossentropy", optimizer = adam, metrics = ["sparse_categorical_accuracy"])
 
+gen_train = generate_batch(train_data_list, label_data_list, MAX_TIMESTEP, BATCH_SIZE, ZERO_OFFSET)
+gen_test = generate_batch(test_data_list, test_label_data_list, MAX_TIMESTEP, BATCH_SIZE, True)
 model_train.summary()
-model_train.fit_generator(generator = generate_train_data(MAX_TIMESTEP, BATCH_SIZE, ZERO_OFFSET),
+model_train.fit_generator(generator = gen_train,
                     steps_per_epoch = STEPS_PER_EPOCH, 
                     epochs = EPOCHS, 
                     verbose = 1,
                     callbacks = [lr_scheduler, early_stop, pred_outputer],
-                    validation_data = generate_train_data(MAX_TIMESTEP, VALIDATION_NUMBER, True), 
+                    validation_data = gen_test, 
                     validation_steps = 1)
 model.save(SAVE_MODEL_NAME)
