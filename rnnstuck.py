@@ -229,7 +229,7 @@ else :
         if MAX_TIMESTEP :
             rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq))(rnn_layer)
         else :
-            rnn_layer = Bidirectional(CuDNNLSTM(v, return_sequences = is_return_seq))(rnn_layer)
+            rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq))(rnn_layer)
         rnn_layer = Dropout(0.2)(rnn_layer)
     if USE_ATTENTION :
         attention = Dense(1, activation = "softmax")(rnn_layer)
