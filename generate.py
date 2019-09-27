@@ -7,38 +7,25 @@ from train_w2v import *
 from keras.models import load_model
 from gensim.models import word2vec
 
-model = load_model("rnnstuck_model.h5")
-outfile = open("output-generate.txt", "w+", encoding = "utf-8-sig")
-
-if W2V_BY_VOCAB : word_model = word2vec.Word2Vec.load("myword2vec_by_word.model")
-else : word_model = word2vec.Word2Vec.load("myword2vec_by_char.model")
-word_vector = word_model.wv
-del word_model
-
-OUTPUT_NUMBER = 8
-WV_SIZE = word_vector.syn0.shape[1]
-MAX_TIME_STEP = model.layers[0].input_shape[1]
-print("MAX_TIME_STEP", MAX_TIME_STEP)
-
-def make_input_matrix(word_list, sentence_length_limit = None) :
-    dim = WV_SIZE
-    if sentence_length_limit :
-        input_matrix = np.zeros([1, sentence_length_limit, dim])
+def make_input_matrix_for_generate(word_list, word_vectors, max_timestep = None) :
+    if max_timestep : # only keep last few words if has max_timestep
+        word_list = word_list[ -max_timestep : ]
+        input_matrix = np.zeros([1, max_timestep, word_vectors.syn0.shape[1]])
     else :
-        input_matrix = np.zeros([1, len(word_list), dim])
-    
-    if sentence_length_limit :
-        word_list = word_list[ -sentence_length_limit : ] # only keep last few words if has sentence_length_limit
-
-    for i, word in enumerate(word_list) :
-        try :
-            input_matrix[0, i] = word_vector[word] # add one because zero is masked
-        except KeyError :
+        input_matrix = np.zeros([1, len(word_list), word_vectors.syn0.shape[1]])
+    in_counter = 0 if USE_START_MARK else 1
+    for word in word_list :
+        if word in word_vectors :
+            if word != ENDING_MARK :
+                input_matrix[0, in_counter] = word_vectors[word] # add one because zero is masked
+                in_counter += 1
+        else :
             for c in word :
-                try :
-                    input_matrix[0, i] = word_vector[word]
-                except KeyError :
-                    continue
+                if c in word_vectors :
+                    input_matrix[0, in_counter] = word_vectors[c]
+                    in_counter += 1
+                if in_counter >= len(word_list) : break
+        if in_counter >= len(word_list) : break
     return input_matrix
     
 def sample(prediction, temperature = 1.0) :
@@ -48,28 +35,29 @@ def sample(prediction, temperature = 1.0) :
     prediction = exp_preds / np.sum(exp_preds)
     return np.random.multinomial(1, prediction, 1)
     
-def predict_output_sentence(predict_model, temperature, max_output_length, initial_input_sentence = None) :
-    output_sentence = []
+def predict_output_sentence(predict_model, word_vectors, max_output_length, initial_input_sentence = None) :
     if initial_input_sentence :
-        output_sentence += initial_input_sentence
+        output_sentence = initial_input_sentence
+    elif W2V_BY_VOCAB :
+        output_sentence = []
+    else :
+        output_sentence = ""
     for n in range(max_output_length) :
-        input_array = make_input_matrix(output_sentence, sentence_length_limit = MAX_TIME_STEP)
+        input_array = make_input_matrix_for_generate(output_sentence, word_vectors, max_timestep = predict_model.layers[0].input_shape[1])
         y_test = predict_model.predict(input_array)
-        y_test = sample(y_test[0], temperature)
-        next_word = word_vector.wv.index2word[np.argmax(y_test[0])]   
+        y_test = sample(y_test[0], 0.8)
+        next_word = word_vectors.wv.index2word[np.argmax(y_test[0])]   
         output_sentence.append(next_word)
         if next_word == ENDING_MARK : break
     output_sentence.append("\n")
     return output_sentence
 
-def output_to_file(filename, output_number, max_output_length) :
+def output_to_file(predict_model, word_vectors, filename, output_number = 1, max_output_length = 100) :
+    seed_list, c = get_train_data(word_min = 0, word_max = 2, line_min = 0, line_max = 2)
     outfile = open(filename, "w+", encoding = "utf-8-sig")
-    if W2V_BY_VOCAB :
-        init_word = open(CUT_PATH + np.random.choice(PAGENAME_LIST), 'r', encoding = 'utf-8-sig').readline().split()[0]
-    else :
-        init_word = open(PROC_PATH + np.random.choice(PAGENAME_LIST), 'r', encoding = 'utf-8-sig').readline()[0]
-    for out_i in range(output_number) :
-        output_sentence = predict_output_sentence(model, 0.8, max_output_length, init_word)
+    for _ in range(output_number) :
+        seed = random.choice(seed_list)[0:2]
+        output_sentence = predict_output_sentence(predict_model, word_vectors, max_output_length, seed)
         output_string = ""
         for word in output_sentence :
             output_string += word
@@ -77,5 +65,15 @@ def output_to_file(filename, output_number, max_output_length) :
         outfile.write(">>>>>>>>\n")
     outfile.close()
 
-output_to_file("output-generate.txt", 4, 200)
+if __name__ == "__main__" :
+    model = load_model("rnnstuck_model.h5")
+    outfile = open("output-generate.txt", "w+", encoding = "utf-8-sig")
+
+    if W2V_BY_VOCAB : word_model = word2vec.Word2Vec.load("myword2vec_by_word.model")
+    else : word_model = word2vec.Word2Vec.load("myword2vec_by_char.model")
+    word_vectors = word_model.wv
+    del word_model
+    OUTPUT_NUMBER = 8
+    print("MAX_TIMESTEP", model.layers[0].input_shape[1])
+    output_to_file(model, "output-generate.txt", seed_list, 4, 200)
 

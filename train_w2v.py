@@ -24,7 +24,7 @@ def get_pagename_list(path) :
 
 PAGENAME_LIST = get_pagename_list(CUT_PATH if W2V_BY_VOCAB else PROC_PATH)
 
-def get_train_data(page_length_min = 3, page_length_max = None, line_length_min = 1, line_length_max = None) :
+def get_train_data(word_min = 3, word_max = None, line_min = 1, line_max = None) :
     '''
     return page_list, total_word_count
     '''
@@ -37,10 +37,10 @@ def get_train_data(page_length_min = 3, page_length_max = None, line_length_min 
         else :
             line_list = open(PROC_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()
         
-        if line_length_min :
-            if len(line_list) < line_length_min : continue
-        elif line_length_max :
-            if len(line_list) >= line_length_max : line_list = line_list[ : line_length_max]
+        if line_min :
+            if len(line_list) < line_min : continue
+        elif line_max :
+            if len(line_list) >= line_max : line_list = line_list[ : line_max]
         
         # get words from this page
         if USE_START_MARK :
@@ -56,16 +56,16 @@ def get_train_data(page_length_min = 3, page_length_max = None, line_length_min 
                 re.match(r"^(.{1,12})\n", line) # ignore texts in images
                ) :
                 continue
-            line = re.sub(r"※[0-9 ]", "", line) # delete translator's notes in content
+            line = re.sub(r"※[0-9 ].", "", line) # delete translator's notes in content
             if W2V_BY_VOCAB : line = line.split() + ['\n']
             this_page_words += line
-            if page_length_max :
-                if len(this_page_words) >= page_length_max : break
+            if word_max :
+                if len(this_page_words) >= word_max : break
         # because there is a line break at the end
         this_page_words = this_page_words[ : -1]
         # if this page is too short : ignore
-        if page_length_min :
-            if len(this_page_words) < page_length_min : continue
+        if word_min :
+            if len(this_page_words) < word_min : continue
         total_word_count += len(this_page_words)
         # put ending character at the end of a page
         if USE_ENDING_MARK :
