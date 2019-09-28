@@ -12,7 +12,7 @@ from gensim.models import word2vec
 from keras import activations, optimizers
 from keras import backend as K
 from keras.models import Model, load_model
-from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping
+from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping, ModelCheckpoint
 from keras.layers import Activation, Bidirectional, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
 
 # -1 : Use CPU; 0 or 1 : Use GPU
@@ -131,8 +131,12 @@ def sequential_sparse_categorical_accuracy(y_true, y_pred) :
     # the shape of y_true is (samples, timesteps, 1)
     return K.mean(K.cast(K.equal(K.flatten(y_true),
                                  K.flatten(K.cast(K.argmax(y_pred, axis = -1), K.floatx())))
-                , K.floatx()))
-    
+                        ,K.floatx()))
+
+class OutputPrediction(Callback) :
+    def on_epoch_end(self, epoch, logs={}) :
+        output_to_file(model, word_vectors, "output.txt", output_number = 4, max_output_length = OUTPUT_TIME_STEP)
+                
 def lrate_epoch_decay(epoch) :
     init_lr = LEARNING_RATE
     e = min(LR_DECAY_POW_MAX, (epoch + 1) // LR_DECAY_INTV) # INTV epoches per decay, with max e
@@ -140,19 +144,16 @@ def lrate_epoch_decay(epoch) :
     
 lr_scheduler = LearningRateScheduler(lrate_epoch_decay)
 early_stop = EarlyStopping(monitor = "loss", min_delta = EARLYSTOP_MIN_DELTA, patience = EARLYSTOP_PATIENCE)
-
-class OutputPrediction(Callback) :
-    def on_epoch_end(self, epoch, logs={}) :
-        output_to_file(model, word_vectors, "output.txt", output_number = 4, max_output_length = OUTPUT_TIME_STEP)
-
+model_checkpointer = ModelCheckpoint(SAVE_MODEL_NAME)
 pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
 STEPS_PER_EPOCH = int((train_word_count - len(page_list) * 2) // BATCH_SIZE * STEP_EPOCH_RATE)
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
-print("max time step:", MAX_TIMESTEP, "\nuse zero offest:", ZERO_OFFSET, "\nuse seq label:", USE_SEQ_LABEL, "\nrnn units:", RNN_UNIT, "\nbatch size:", BATCH_SIZE, "\nvalidation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
-print("step per epoch:", STEPS_PER_EPOCH, "\nlearning_rate:", LEARNING_RATE)
+print("max time step:", MAX_TIMESTEP, "\nuse zero offest:", ZERO_OFFSET, "\nuse seq label:", USE_SEQ_LABEL, "\nrnn units:", RNN_UNIT)
+print("batch size:", BATCH_SIZE, "\nstep per epoch:", STEPS_PER_EPOCH, "\nepoches", EPOCHS, "\nlearning_rate:", LEARNING_RATE)
+print("validation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
 
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
@@ -202,7 +203,7 @@ model_train.fit_generator(generator = gen_train,
                     steps_per_epoch = STEPS_PER_EPOCH, 
                     epochs = EPOCHS, 
                     verbose = 1,
-                    callbacks = [lr_scheduler, early_stop, pred_outputer],
+                    callbacks = [model_checkpointer, lr_scheduler, early_stop, pred_outputer],
                     validation_data = gen_test, 
                     validation_steps = 1)
 model.save(SAVE_MODEL_NAME)

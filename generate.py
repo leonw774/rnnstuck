@@ -75,5 +75,5 @@ if __name__ == "__main__" :
     del word_model
     OUTPUT_NUMBER = 8
     print("MAX_TIMESTEP", model.layers[0].input_shape[1])
-    output_to_file(model, "output-generate.txt", seed_list, 4, 200)
+    output_to_file(model, word_vectors, "output-generate.txt", 4, 200)
 

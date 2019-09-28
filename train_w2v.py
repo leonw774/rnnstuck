@@ -49,14 +49,14 @@ def get_train_data(word_min = 3, word_max = None, line_min = 1, line_max = None)
             this_page_words = [] if W2V_BY_VOCAB else ""
         
         for i, line in enumerate(line_list) :
-            if (line == "\n" or 
-                re.match(r"[\s\.\-/]{4,}", line) or # ignore morse code
+            line = line.strip()
+            if (re.match(r"[\s\.\-/]{4,}", line) or # ignore morse code
                 re.match(r"(hstwproject) | (zhhomestuck)", line) or # ignore meta text
                 re.match(r"(^※)", line) or # ingore translator's notes
-                re.match(r"^(.{1,12})\n", line) # ignore texts in images
+                re.match(r"^(.{1,20})\n", line) # ignore texts in images
                ) :
                 continue
-            line = re.sub(r"※[0-9 ].", "", line) # delete translator's notes in content
+            #line = re.sub(r"※[0-9 ]", "", line) # delete translator's notes in content
             if W2V_BY_VOCAB : line = line.split() + ['\n']
             this_page_words += line
             if word_max :
