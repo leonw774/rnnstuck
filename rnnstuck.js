@@ -9,7 +9,7 @@ async function load_model() {
       out_div = document.getElementById("output-div");
   load_btn.disabled = true;
   out_div.innerText = "........正在載入model........"
-  model = await tf.loadLayerModel('/rnnstuck/jsmodel/model.json');
+  model = await tf.loadLayersModel('/rnnstuck/jsmodel/model.json');
   model_loaded = true;
   out_div.innerText = "model載入完成。";
   gen_btn.disabled = false;
