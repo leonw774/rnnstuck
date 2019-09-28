@@ -9,7 +9,7 @@ async function load_model() {
       out_div = document.getElementById("output-div");
   load_btn.disabled = true;
   out_div.innerText = "........正在載入model........"
-  model = await tf.loadModel('https://zhhomestuck.github.io/rnnstuck/jsmodel/model.json');
+  model = await tf.loadModel('/rnnstuck/jsmodel/model.json');
   model_loaded = true;
   out_div.innerText = "model載入完成。";
   gen_btn.disabled = false;
@@ -70,11 +70,11 @@ async function generate()
   var next_word = "", last_word = "";
   for (var i = 0; i < 60; i++) {
     tf.tidy(() => {
-        var y_data = Array.from(model.predict(tf.tensor(sentence2vecs(output_sentence))).slice([0, output_sentence.length - 1, 0], [1, 1, vocabSize - 1]).dataSync());
+        var y_data = Array.from(model.predict(tf.tensor(sentence2vecs(output_sentence))).dataSync());
         next_word = WORD_INDEX[sample(y_data, 0.75)];
         y_data = [];
     });
-    if (next_word == "<e>") break;
+    if (next_word == "ê") break;
     if (last_word == "\n" && next_word == "\n") continue;
     output_sentence.push(next_word);
     last_word = next_word;
