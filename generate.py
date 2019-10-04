@@ -45,11 +45,14 @@ def predict_output_sentence(predict_model, word_vectors, max_output_length, init
     for n in range(max_output_length) :
         input_array = make_input_matrix_for_generate(output_sentence, word_vectors, max_timestep = predict_model.layers[0].input_shape[1])
         y_test = predict_model.predict(input_array)
-        y_test = sample(y_test[0], 0.8)
+        y_test = sample(y_test[0], 0.7)
         next_word = word_vectors.wv.index2word[np.argmax(y_test[0])]   
-        output_sentence.append(next_word)
+        if W2V_BY_VOCAB :
+            output_sentence.append(next_word)
+        else :
+            output_sentence += next_word
         if next_word == ENDING_MARK : break
-    output_sentence.append("\n")
+    output_sentence += "\n"
     return output_sentence
 
 def output_to_file(predict_model, word_vectors, filename, output_number = 1, max_output_length = 100) :

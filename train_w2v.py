@@ -50,11 +50,12 @@ def get_train_data(word_min = 3, word_max = None, line_min = 1, line_max = None)
         
         for i, line in enumerate(line_list) :
             line = line.strip()
-            if (re.match(r"[\s\.\-/]{4,}", line) or # ignore morse code
-                re.match(r"(hstwproject) | (zhhomestuck)", line) or # ignore meta text
+            if (re.match(r"[\s\.\-/]{5,}", line) or # ignore morse code
+                re.match(r"hstwproject|zhhomestuck", line) or # ignore meta text
                 re.match(r"(^※)", line) or # ingore translator's notes
-                re.match(r"^(.{1,20})\n", line) # ignore texts in images
+                re.match(r"^\([ 圖片影片中的純文字翻譯下收]{4,20}\)", line) # ignore texts in images
                ) :
+                #print(line)
                 continue
             #line = re.sub(r"※[0-9 ]", "", line) # delete translator's notes in content
             if W2V_BY_VOCAB : line = line.split() + ['\n']
@@ -83,9 +84,10 @@ def make_new_w2v(page_list, show_result = False) :
     word_model.save(word_model_name)
     if show_result :
         print("vector size: ", WV_SIZE, "\nvocab size: ", word_model.wv.syn0.shape[0])
-        print("貓\n", word_model.wv.most_similar("貓", topn = 10))
-        print("遊戲\n", word_model.wv.most_similar("遊戲", topn = 10))
-        print("幹\n", word_model.wv.most_similar("幹", topn = 10))
+        if W2V_BY_VOCAB :
+            print("遊戲\n", word_model.wv.most_similar("遊戲", topn = 10))
+        else :
+            print("貓\n", word_model.wv.most_similar("貓", topn = 10))
     print("done.")
     return word_model
     

@@ -71,7 +71,7 @@ for page in page_list :
     train_data_list.append(t)
     label_data_list.append(l)
 
-train_test_split = len(page_list) * 19 // 20
+train_test_split = len(page_list) * 11 // 12
 test_data_list = train_data_list[train_test_split : ]
 test_label_data_list = label_data_list[train_test_split : ]
 train_data_list = train_data_list[ : train_test_split]
@@ -82,25 +82,16 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
         batch_num = random.sample(range(0, len(x)), batch_size)
         if max_timestep :
             timestep_size = max_timestep
-        elif USE_SEQ_LABEL or not zero_offset :
-            max_length = min([x[b].shape[1] for b in batch_num])
-            timestep_size = random.randint(1, max_length)
         else :
             max_length = max([x[b].shape[1] for b in batch_num])
             timestep_size = random.randint(1, max_length)
 
         bx = np.zeros((batch_size, timestep_size, WV_SIZE))
-        if USE_SEQ_LABEL :
-            by = np.zeros((batch_size, timestep_size, 1), dtype = int)
-        else :
-            by = np.zeros((batch_size, 1), dtype = int)
+        by = np.zeros((batch_size, 1), dtype = int)
 
         for i, b in enumerate(batch_num) :
             this_data_length = x[b].shape[1]
-            if USE_SEQ_LABEL :
-                timestep = min(this_data_length, timestep_size)
-            else :
-                timestep = random.randint(1, min(this_data_length, timestep_size))
+            timestep = random.randint(1, min(this_data_length, timestep_size))
             # 'answer' indocate a index of data in the label list (count from 0)
             # a train-label[x] is the one-hot rep of train-data[x+1]
             # so, if answer == 5, the longest train data we can get is [0 : 6], which is 6 in length
@@ -111,10 +102,7 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
                 answer = random.randint(timestep, this_data_length) - 1
             #try :
             bx[i, : timestep] = x[b][:, answer - (timestep - 1) : answer + 1]
-            if USE_SEQ_LABEL :
-                by[i, : timestep] = y[b][:, answer - (timestep - 1) : answer + 1]
-            else :
-                by[i] = y[b][:, answer]
+            by[i] = y[b][:, answer]
             #except :
             #    print("Index Error:", (this_data_length, answer, timestep))
         yield bx, by
@@ -122,16 +110,6 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
 ### CALLBACK FUNCTIONS ###
 def sparse_categorical_perplexity(y_true, y_pred) :
     return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
-
-def sequential_sparse_categorical_crossentropy(y_true, y_pred) :
-    # the shape of y_true is (samples, timesteps, 1)
-    return K.sparse_categorical_crossentropy(y_true, y_pred, axis = -1)
-    
-def sequential_sparse_categorical_accuracy(y_true, y_pred) :
-    # the shape of y_true is (samples, timesteps, 1)
-    return K.mean(K.cast(K.equal(K.flatten(y_true),
-                                 K.flatten(K.cast(K.argmax(y_pred, axis = -1), K.floatx())))
-                        ,K.floatx()))
 
 class OutputPrediction(Callback) :
     def on_epoch_end(self, epoch, logs={}) :
@@ -164,37 +142,35 @@ else :
     
     ## make model
     input_layer = Input([MAX_TIMESTEP, WV_SIZE])
-    if MAX_TIMESTEP :
-        rnn_layer = Masking(mask_value = 0.)(input_layer)
-    else :
-        rnn_layer = input_layer
+    rnn_layer = input_layer
     
     for i, v in enumerate(RNN_UNIT) :
-        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or USE_SEQ_LABEL
-        if MAX_TIMESTEP :
-            rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq))(rnn_layer)
+        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or USE_SEQ_RNN_OUTPUT
+        if USE_BIDIRECTION :
+            if MAX_TIMESTEP :
+                rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq))(rnn_layer)
+            else :
+                rnn_layer = Bidirectional(CuDNNLSTM(v, return_sequences = is_return_seq))(rnn_layer)
         else :
-            rnn_layer = Bidirectional(CuDNNLSTM(v, return_sequences = is_return_seq))(rnn_layer)
+            if MAX_TIMESTEP :
+                rnn_layer = LSTM(v, return_sequences = is_return_seq)(rnn_layer)
+            else :
+                rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq)(rnn_layer)
         rnn_layer = Dropout(0.2)(rnn_layer)
     if USE_ATTENTION :
         attention = Dense(1, activation = "softmax")(rnn_layer)
         print("attention:", rnn_layer.shape, "to", attention.shape)
         postproc_layer = multiply([attention, rnn_layer])
-        if not USE_SEQ_LABEL :
-            postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
-        postproc_layer = Dropout(0.2)(postproc_layer)
+        postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
+    elif USE_SEQ_RNN_OUTPUT :
+        postproc_layer = Flatten()(rnn_layer)
     else :
         postproc_layer = rnn_layer
+    postproc_layer = Dropout(0.2)(postproc_layer)
     guess = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
-    if USE_SEQ_LABEL :
-        guess_last = Lambda(lambda x: x[:, -1])(guess)
-        model = Model(input_layer, guess_last)
-        model_train = Model(input_layer, guess)
-        model_train.compile(loss = sequential_sparse_categorical_crossentropy, optimizer = adam, metrics = [sequential_sparse_categorical_accuracy])
-    else :
-        model = Model(input_layer, guess)
-        model_train = model
-        model_train.compile(loss = "sparse_categorical_crossentropy", optimizer = adam, metrics = ["sparse_categorical_accuracy"])
+    model = Model(input_layer, guess)
+    model_train = model
+    model_train.compile(loss = "sparse_categorical_crossentropy", optimizer = adam, metrics = ["sparse_categorical_accuracy"])
 
 gen_train = generate_batch(train_data_list, label_data_list, MAX_TIMESTEP, BATCH_SIZE, ZERO_OFFSET)
 gen_test = generate_batch(test_data_list, test_label_data_list, MAX_TIMESTEP, BATCH_SIZE, True)
