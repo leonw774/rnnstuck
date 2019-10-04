@@ -22,7 +22,7 @@ SAVE_MODEL_NAME = "rnnstuck_model.h5"
 
 # LSTM setting
 MAX_TIMESTEP = 24 # set None to be unlimited
-RNN_UNIT = [32]
+RNN_UNIT = [12]
 USE_BIDIRECTION = True
 USE_SEQ_RNN_OUTPUT = True
 USE_ATTENTION = False

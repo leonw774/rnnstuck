@@ -129,7 +129,7 @@ pred_outputer = OutputPrediction()
 STEPS_PER_EPOCH = int((train_word_count - len(page_list) * 2) // BATCH_SIZE * STEP_EPOCH_RATE)
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
-print("max time step:", MAX_TIMESTEP, "\nuse zero offest:", ZERO_OFFSET, "\nuse seq label:", USE_SEQ_LABEL, "\nrnn units:", RNN_UNIT)
+print("max time step:", MAX_TIMESTEP, "\nuse zero offest:", ZERO_OFFSET, "\nrnn units:", RNN_UNIT)
 print("batch size:", BATCH_SIZE, "\nstep per epoch:", STEPS_PER_EPOCH, "\nepoches", EPOCHS, "\nlearning_rate:", LEARNING_RATE)
 print("validation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
 
