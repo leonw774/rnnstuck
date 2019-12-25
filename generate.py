@@ -9,11 +9,14 @@ from gensim.models import word2vec
 
 def make_input_matrix_for_generate(word_list, word_vectors, max_timestep = None) :
     if max_timestep : # only keep last few words if has max_timestep
-        word_list = word_list[ -max_timestep : ]
+        if len(word_list) > max_timestep :
+            word_list = word_list[ -max_timestep : ]
         input_matrix = np.zeros([1, max_timestep, word_vectors.syn0.shape[1]])
     else :
         input_matrix = np.zeros([1, len(word_list), word_vectors.syn0.shape[1]])
+    
     in_counter = 0 if USE_START_MARK else 1
+    
     for word in word_list :
         if word in word_vectors :
             if word != ENDING_MARK :

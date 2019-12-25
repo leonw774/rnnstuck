@@ -13,7 +13,7 @@ from keras import activations, optimizers
 from keras import backend as K
 from keras.models import Model, load_model
 from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping, ModelCheckpoint
-from keras.layers import Activation, Bidirectional, Concatenate, ConvLSTM2D, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
+from keras.layers import Activation, Bidirectional, Concatenate, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, Multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
 
 # -1 : Use CPU; 0 or 1 : Use GPU
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
@@ -47,7 +47,7 @@ def make_training_matrices(word_list) :
 
     for word in word_list :
         if word in word_vectors :
-            if word != ENDING_MARK :
+            if word != ENDING_MARK and in_counter < len(word_list) :
                 input_matrix[0, in_counter] = word_vectors[word] # add one because zero is masked
                 in_counter += 1
             if word != START_MARK :
@@ -56,12 +56,15 @@ def make_training_matrices(word_list) :
         else :
             for c in word :
                 if c in word_vectors :
-                    input_matrix[0, in_counter] = word_vectors[c]
-                    in_counter += 1
+                    if in_counter < len(word_list) :
+                        input_matrix[0, in_counter] = word_vectors[c]
+                        in_counter += 1
                     label_matrix[0, label_counter, 0] = word_vectors.vocab[c].index
                     label_counter += 1
-                if in_counter >= len(word_list) : break
-        if in_counter >= len(word_list) : break
+                if label_counter >= len(word_list) :
+                    break
+        if label_counter >= len(word_list):
+            break
     return input_matrix, label_matrix
 
 train_data_list = []
@@ -101,6 +104,8 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
             else :
                 answer = random.randint(timestep, this_data_length) - 1
             #try :
+            # bx from -timestep to end because the last timestep cannot be zero vector
+            # x[b]'s last == answer + 1 because it need to include [answer]
             bx[i, : timestep] = x[b][:, answer - (timestep - 1) : answer + 1]
             by[i] = y[b][:, answer]
             #except :
@@ -109,7 +114,7 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
 
 ### CALLBACK FUNCTIONS ###
 def sparse_categorical_perplexity(y_true, y_pred) :
-    return K.exp(K.sparse_categorical_crossentropy(y_true, y_pred))
+    return K.square(K.sparse_categorical_crossentropy(y_true, y_pred))
 
 class OutputPrediction(Callback) :
     def on_epoch_end(self, epoch, logs={}) :
@@ -126,19 +131,26 @@ model_checkpointer = ModelCheckpoint(SAVE_MODEL_NAME)
 pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
-STEPS_PER_EPOCH = int((train_word_count - len(page_list) * 2) // BATCH_SIZE * STEP_EPOCH_RATE)
+STEPS_PER_EPOCH = int((train_word_count) // BATCH_SIZE * STEP_EPOCH_RATE)
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
 print("max time step:", MAX_TIMESTEP, "\nuse zero offest:", ZERO_OFFSET, "\nrnn units:", RNN_UNIT)
-print("batch size:", BATCH_SIZE, "\nstep per epoch:", STEPS_PER_EPOCH, "\nepoches", EPOCHS, "\nlearning_rate:", LEARNING_RATE)
+print("\noptimizer:", USE_OPTIMIZER, "\nbatch size:", BATCH_SIZE, "\nstep per epoch:", STEPS_PER_EPOCH, "\nepoches", EPOCHS, "\nlearning_rate:", LEARNING_RATE)
 print("validation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
 
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
 else :
-    sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.9, nesterov = True, decay = 0.0)
+    sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.5, nesterov = True, decay = 0.0)
     rmsprop = optimizers.RMSprop(lr = LEARNING_RATE, decay = 0.0)
     adam = optimizers.Adam(lr = LEARNING_RATE, decay = 0.0)
+    
+    if USE_OPTIMIZER == "sgd" :
+        optier = sgd
+    elif USE_OPTIMIZER == "rmsprop" :
+        optier = rmsprop
+    elif USE_OPTIMIZER == "adam" :
+        optier = adam
     
     ## make model
     input_layer = Input([MAX_TIMESTEP, WV_SIZE])
@@ -156,21 +168,23 @@ else :
                 rnn_layer = LSTM(v, return_sequences = is_return_seq)(rnn_layer)
             else :
                 rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq)(rnn_layer)
-        rnn_layer = Dropout(0.2)(rnn_layer)
     if USE_ATTENTION :
-        attention = Dense(1, activation = "softmax")(rnn_layer)
+        attention = Dense(1, activation = "softmax")(rnn_layer) # => (?, MAX_TIMESTEP, 1)
         print("attention:", rnn_layer.shape, "to", attention.shape)
-        postproc_layer = multiply([attention, rnn_layer])
-        postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer)
+        postproc_layer = Multiply()([attention, rnn_layer]) # => (?, MAX_TIMESTEP, last_rnn_units)
+        postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer) # => (?, last_rnn_units)
     elif USE_SEQ_RNN_OUTPUT :
         postproc_layer = Flatten()(rnn_layer)
     else :
         postproc_layer = rnn_layer
-    postproc_layer = Dropout(0.2)(postproc_layer)
+    postproc_layer = Dropout(0.1)(postproc_layer)
     guess = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
     model = Model(input_layer, guess)
     model_train = model
-    model_train.compile(loss = "sparse_categorical_crossentropy", optimizer = adam, metrics = ["sparse_categorical_accuracy"])
+    model_train.compile(
+        loss = "sparse_categorical_crossentropy", #sparse_categorical_perplexity,
+        optimizer = rmsprop,
+        metrics = ["sparse_categorical_accuracy"])
 
 gen_train = generate_batch(train_data_list, label_data_list, MAX_TIMESTEP, BATCH_SIZE, ZERO_OFFSET)
 gen_test = generate_batch(test_data_list, test_label_data_list, MAX_TIMESTEP, BATCH_SIZE, True)
