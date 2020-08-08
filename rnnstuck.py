@@ -18,7 +18,11 @@ from keras.layers import Activation, Bidirectional, Concatenate, CuDNNLSTM, Dens
 # -1 : Use CPU; 0 or 1 : Use GPU
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
-print("\nW2V_BY_VOCAB:", W2V_BY_VOCAB, "\nWORD_LENGTH_MAX", WORD_LENGTH_MAX, "\nWORD_LENGTH_MIN", WORD_LENGTH_MIN, "\nLINE_LENGTH_MAX", LINE_LENGTH_MAX, "\nLINE_LENGTH_MIN", LINE_LENGTH_MIN)
+print("\nW2V_BY_VOCAB:", W2V_BY_VOCAB)
+print("WORD_LENGTH_MAX", WORD_LENGTH_MAX)
+print("WORD_LENGTH_MIN", WORD_LENGTH_MIN)
+print("LINE_LENGTH_MAX", LINE_LENGTH_MAX)
+print("LINE_LENGTH_MIN", LINE_LENGTH_MIN)
 if MAX_TIMESTEP :
     if MAX_TIMESTEP > WORD_LENGTH_MIN : print("Warning: WORD_LENGTH_MIN is smaller than MAX_TIMESTEP")
 
@@ -81,32 +85,27 @@ train_data_list = train_data_list[ : train_test_split]
 label_data_list = label_data_list[ : train_test_split]
 
 def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
+    if not max_timestep:
+        timestep_size = WORD_LENGTH_MAX
+    else :
+        timestep_size = max_timestep
+    bx = np.zeros((batch_size, timestep_size, WV_SIZE))
+    by = np.zeros((batch_size, 1), dtype = int)
     while 1 :
         batch_num = random.sample(range(0, len(x)), batch_size)
-        if max_timestep :
-            timestep_size = max_timestep
-        else :
-            max_length = max([x[b].shape[1] for b in batch_num])
-            timestep_size = random.randint(1, max_length)
-
-        bx = np.zeros((batch_size, timestep_size, WV_SIZE))
-        by = np.zeros((batch_size, 1), dtype = int)
 
         for i, b in enumerate(batch_num) :
-            this_data_length = x[b].shape[1]
-            timestep = random.randint(1, min(this_data_length, timestep_size))
+            b_length = x[b].shape[1]
+            timestep = random.randint(1, min(b_length, timestep_size))
             # 'answer' indocate a index of data in the label list (count from 0)
             # a train-label[x] is the one-hot rep of train-data[x+1]
             # so, if answer == 5, the longest train data we can get is [0 : 6], which is 6 in length
             # it means for a timestep, the smallest answer is timestep - 1
-            if zero_offset :
-                answer = timestep - 1
-            else :
-                answer = random.randint(timestep, this_data_length) - 1
+            answer = (timestep-1) if zero_offset else (random.randint(timestep, b_length)-1)
             #try :
             # bx from -timestep to end because the last timestep cannot be zero vector
             # x[b]'s last == answer + 1 because it need to include [answer]
-            bx[i, : timestep] = x[b][:, answer - (timestep - 1) : answer + 1]
+            bx[i, : timestep] = x[b][:, answer-timestep+1 : answer+1]
             by[i] = y[b][:, answer]
             #except :
             #    print("Index Error:", (this_data_length, answer, timestep))
@@ -131,25 +130,25 @@ model_checkpointer = ModelCheckpoint(SAVE_MODEL_NAME)
 pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
-STEPS_PER_EPOCH = int((train_word_count) // BATCH_SIZE * STEP_EPOCH_RATE)
+STEPS_PER_EPOCH = int(train_word_count // BATCH_SIZE * STEP_EPOCH_RATE)
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
-print("max time step:", MAX_TIMESTEP, "\nuse zero offest:", ZERO_OFFSET, "\nrnn units:", RNN_UNIT)
-print("\noptimizer:", USE_OPTIMIZER, "\nbatch size:", BATCH_SIZE, "\nstep per epoch:", STEPS_PER_EPOCH, "\nepoches", EPOCHS, "\nlearning_rate:", LEARNING_RATE)
+print("max time step: %s\nuse zero offest: %r\nrnn units: %s" % (MAX_TIMESTEP, ZERO_OFFSET, RNN_UNIT))
+print("\noptimizer: %s\nbatch size: %d\nstep per epoch: %d\nepoches: %d\nlearning_rate: %f" % (OPTIMIZER_NAME, BATCH_SIZE, STEPS_PER_EPOCH, EPOCHS, LEARNING_RATE))
 print("validation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
 
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
 else :
-    sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.5, nesterov = True, decay = 0.0)
-    rmsprop = optimizers.RMSprop(lr = LEARNING_RATE, decay = 0.0)
-    adam = optimizers.Adam(lr = LEARNING_RATE, decay = 0.0)
+    sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.5, nesterov = True)
+    rmsprop = optimizers.RMSprop(lr = LEARNING_RATE)
+    adam = optimizers.Adam(lr = LEARNING_RATE)
     
-    if USE_OPTIMIZER == "sgd" :
+    if OPTIMIZER_NAME == "sgd" :
         optier = sgd
-    elif USE_OPTIMIZER == "rmsprop" :
+    elif OPTIMIZER_NAME == "rmsprop" :
         optier = rmsprop
-    elif USE_OPTIMIZER == "adam" :
+    elif OPTIMIZER_NAME == "adam" :
         optier = adam
     
     ## make model
@@ -157,18 +156,18 @@ else :
     rnn_layer = input_layer
     
     for i, v in enumerate(RNN_UNIT) :
-        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or USE_SEQ_RNN_OUTPUT
+        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or USE_SEQ_RNN_OUTPUT or USE_SEQ_ANSWER
         if USE_BIDIRECTION :
-            if MAX_TIMESTEP :
-                rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq))(rnn_layer)
-            else :
+            if USE_CUDNN :
                 rnn_layer = Bidirectional(CuDNNLSTM(v, return_sequences = is_return_seq))(rnn_layer)
-        else :
-            if MAX_TIMESTEP :
-                rnn_layer = LSTM(v, return_sequences = is_return_seq)(rnn_layer)
             else :
+                rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq))(rnn_layer)
+        else :
+            if USE_CUDNN :
                 rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq)(rnn_layer)
-    if USE_ATTENTION :
+            else :
+                rnn_layer = LSTM(v, return_sequences = is_return_seq)(rnn_layer)
+    if USE_ATTENTION and MAX_TIMESTEP :
         attention = Dense(1, activation = "softmax")(rnn_layer) # => (?, MAX_TIMESTEP, 1)
         print("attention:", rnn_layer.shape, "to", attention.shape)
         postproc_layer = Multiply()([attention, rnn_layer]) # => (?, MAX_TIMESTEP, last_rnn_units)
@@ -183,7 +182,7 @@ else :
     model_train = model
     model_train.compile(
         loss = "sparse_categorical_crossentropy", #sparse_categorical_perplexity,
-        optimizer = rmsprop,
+        optimizer = optier,
         metrics = ["sparse_categorical_accuracy"])
 
 gen_train = generate_batch(train_data_list, label_data_list, MAX_TIMESTEP, BATCH_SIZE, ZERO_OFFSET)

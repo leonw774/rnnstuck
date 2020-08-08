@@ -48,7 +48,7 @@ def predict_output_sentence(predict_model, word_vectors, max_output_length, init
     for n in range(max_output_length) :
         input_array = make_input_matrix_for_generate(output_sentence, word_vectors, max_timestep = predict_model.layers[0].input_shape[1])
         y_test = predict_model.predict(input_array)
-        y_test = sample(y_test[0], 0.7)
+        y_test = sample(y_test[0], OUTPUT_SAMPLE_TEMPERATURE)
         next_word = word_vectors.wv.index2word[np.argmax(y_test[0])]   
         if W2V_BY_VOCAB :
             output_sentence.append(next_word)
@@ -72,11 +72,10 @@ def output_to_file(predict_model, word_vectors, filename, output_number = 1, max
     outfile.close()
 
 if __name__ == "__main__" :
-    model = load_model("rnnstuck_model.h5")
+    model = load_model("./models/rnnstuck_model.h5")
     outfile = open("output-generate.txt", "w+", encoding = "utf-8-sig")
 
-    if W2V_BY_VOCAB : word_model = word2vec.Word2Vec.load("myword2vec_by_word.model")
-    else : word_model = word2vec.Word2Vec.load("myword2vec_by_char.model")
+    word_model = word2vec.Word2Vec.load(W2V_MODEL_NAME)
     word_vectors = word_model.wv
     del word_model
     OUTPUT_NUMBER = 8

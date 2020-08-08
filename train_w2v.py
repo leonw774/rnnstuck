@@ -38,9 +38,9 @@ def get_train_data(word_min = 3, word_max = None, line_min = 1, line_max = None)
             line_list = open(PROC_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()
         
         if line_min :
-            if len(line_list) < line_min : continue
+            if len(line_list) <= line_min : continue
         elif line_max :
-            if len(line_list) >= line_max : line_list = line_list[ : line_max]
+            if len(line_list) > line_max : line_list = line_list[ : line_max]
         
         # get words from this page
         if USE_START_MARK :
@@ -79,9 +79,8 @@ def get_train_data(word_min = 3, word_max = None, line_min = 1, line_max = None)
 
 def make_new_w2v(page_list, show_result = False) :
     print("make word model...")
-    word_model_name = "myword2vec_by_word.model" if W2V_BY_VOCAB else "myword2vec_by_char.model"
-    word_model = word2vec.Word2Vec(page_list, iter = W2V_ITER, sg = 1, size = WV_SIZE, window = 6, workers = 4, min_count = (W2V_MIN_COUNT_BY_VOCAB if W2V_BY_VOCAB else W2V_MIN_COUNT_BY_CHAR))
-    word_model.save(word_model_name)
+    word_model = word2vec.Word2Vec(page_list, iter = W2V_ITER, sg = 1, size = WV_SIZE, window = 6, workers = 4, min_count = W2V_MIN_COUNT)
+    word_model.save(W2V_MODEL_NAME)
     if show_result :
         print("vector size: ", WV_SIZE, "\nvocab size: ", word_model.wv.syn0.shape[0])
         if W2V_BY_VOCAB :

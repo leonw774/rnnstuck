@@ -94,12 +94,20 @@ post_string = ""
 for file_i, filename in enumerate(filename_list) :
     if file_i % 1000 == 0 : print(file_i)
     old_file_lines = open(POST_PATH + filename, 'r', encoding = 'utf-8-sig').readlines()
+    
     # get title
     title = old_file_lines[2][7:]
     if title.startswith('"') :
         title = title[1 : len(title) - 2] + '\n' # because it ends with '\"\n'
+    # get post begin line num
+    begin_line = 0
+    for n, line in enumerate(old_file_lines[1:]):
+        if line == "---":
+            begin_line = n
+            break
+            
     new_lines = [title]
-    new_lines += old_file_lines[11:]
+    new_lines += old_file_lines[begin_line+2:]
     for new_l in new_lines :
         post_string += new_l
     post_string = tag_remover(post_string)
@@ -134,6 +142,7 @@ proc_post_list = sorted(proc_post_list, key = sorting_file_name)
 print("CREATE_NEW_JIEBA...")
 jb.dt.cache_file = 'jieba.cache.zhtw'
 jb.load_userdict('hs_dict.dict')
+print("cutting posts...")
 for postname in proc_post_list :
     jieba_in_string = open(PROC_PATH + postname, 'r', encoding = "utf-8-sig").read() 
     jieba_in_string = re.sub(r" +", " ", jieba_in_string)
