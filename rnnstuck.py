@@ -156,7 +156,7 @@ else :
     rnn_layer = input_layer
     
     for i, v in enumerate(RNN_UNIT) :
-        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or USE_SEQ_RNN_OUTPUT or USE_SEQ_ANSWER
+        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or USE_SEQ_RNN_OUTPUT
         if USE_BIDIRECTION :
             if USE_CUDNN :
                 rnn_layer = Bidirectional(CuDNNLSTM(v, return_sequences = is_return_seq))(rnn_layer)
@@ -176,7 +176,7 @@ else :
         postproc_layer = Flatten()(rnn_layer)
     else :
         postproc_layer = rnn_layer
-    postproc_layer = Dropout(0.1)(postproc_layer)
+    postproc_layer = Dropout(0.2)(postproc_layer)
     guess = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
     model = Model(input_layer, guess)
     model_train = model

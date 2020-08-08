@@ -5,9 +5,9 @@ from gensim.models import word2vec
 W2V_BY_EACH_WORD = True
 
 if W2V_BY_EACH_WORD :
-    model = word2vec.Word2Vec.load("myword2vec_by_word.model")
+    model = word2vec.Word2Vec.load("./models/myword2vec_by_word.model")
 else :
-    model = word2vec.Word2Vec.load("myword2vec_by_char.model")
+    model = word2vec.Word2Vec.load("./models/myword2vec_by_char.model")
     
 ### VOCAB INDEX ###
 index_out = open("wordindex.js", "w+", encoding = 'utf-8-sig')
