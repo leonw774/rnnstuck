@@ -33,41 +33,36 @@ def make_input_matrix_for_generate(word_list, word_vectors, max_timestep = None)
     
 def sample(prediction, temperature = 1.0) :
     prediction = np.asarray(prediction).astype('float64')
-    prediction = np.log(prediction) / temperature
-    exp_preds = np.exp(prediction)
+    exp_preds = np.exp(np.log(prediction) / temperature)
     prediction = exp_preds / np.sum(exp_preds)
     return np.random.multinomial(1, prediction, 1)
     
-def predict_output_sentence(predict_model, word_vectors, max_output_length, initial_input_sentence = None) :
-    if initial_input_sentence :
-        output_sentence = initial_input_sentence
+def predict_output_sentence(predict_model, word_vectors, max_output_timestep, seed_sentence = None) :
+    if seed_sentence :
+        output_sentence = seed_sentence
     elif W2V_BY_VOCAB :
         output_sentence = []
     else :
         output_sentence = ""
-    for n in range(max_output_length) :
+    for n in range(max_output_timestep) :
         input_array = make_input_matrix_for_generate(output_sentence, word_vectors, max_timestep = predict_model.layers[0].input_shape[1])
         y_test = predict_model.predict(input_array)
         y_test = sample(y_test[0], OUTPUT_SAMPLE_TEMPERATURE)
-        next_word = word_vectors.wv.index2word[np.argmax(y_test[0])]   
+        next_word = word_vectors.wv.index2word[np.argmax(y_test[0])]
         if W2V_BY_VOCAB :
             output_sentence.append(next_word)
         else :
             output_sentence += next_word
-        if next_word == ENDING_MARK : break
+        if next_word == ENDING_MARK: break
     output_sentence += "\n"
     return output_sentence
 
-def output_to_file(predict_model, word_vectors, filename, output_number = 1, max_output_length = 100) :
-    seed_list, c = get_train_data(word_min = 0, word_max = 2, line_min = 0, line_max = 2)
+def output_to_file(predict_model, word_vectors, filename, output_number = 1, max_output_timestep = 100) :
+    seed_post_list, c = get_train_data(page_amount = OUTPUT_NUMBER, word_max = 2)
     outfile = open(filename, "w+", encoding = "utf-8-sig")
-    for _ in range(output_number) :
-        seed = random.choice(seed_list)[0:2]
-        output_sentence = predict_output_sentence(predict_model, word_vectors, max_output_length, seed)
-        output_string = ""
-        for word in output_sentence :
-            output_string += word
-        outfile.write(output_string)
+    for seed_post in seed_post_list:
+        output_sentence = predict_output_sentence(predict_model, word_vectors, max_output_timestep, seed_post[:2])
+        outfile.write("".join(output_sentence))
         outfile.write(">>>>>>>>\n")
     outfile.close()
 

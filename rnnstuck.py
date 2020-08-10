@@ -27,7 +27,7 @@ if MAX_TIMESTEP :
     if MAX_TIMESTEP > WORD_LENGTH_MIN : print("Warning: WORD_LENGTH_MIN is smaller than MAX_TIMESTEP")
 
 ### PREPARE TRAINING DATA AND WORD MODEL ###
-_p, _c = get_train_data()
+_p, _c = get_train_data(word_min = 2)
 word_model = make_new_w2v(_p, show_result = True)
 word_vectors = word_model.wv
 VOCAB_SIZE = word_vectors.syn0.shape[0]
@@ -37,7 +37,6 @@ page_list, train_word_count = get_train_data(word_min = WORD_LENGTH_MIN, word_ma
 random.shuffle(page_list)
 print("total word count:", _c)
 print("train word count:", train_word_count)
-print("vector size: ", WV_SIZE, "\nvocab size: ", VOCAB_SIZE)
 #for i in range(0, 10) : print(page_list[i])
 
 ### PREPARE TRAINING DATA ###
@@ -78,7 +77,7 @@ for page in page_list :
     train_data_list.append(t)
     label_data_list.append(l)
 
-train_test_split = len(page_list) * 11 // 12
+train_test_split = len(page_list) * (VALIDATION_SPLIT-1) // VALIDATION_SPLIT
 test_data_list = train_data_list[train_test_split : ]
 test_label_data_list = label_data_list[train_test_split : ]
 train_data_list = train_data_list[ : train_test_split]
@@ -89,19 +88,20 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
         timestep_size = WORD_LENGTH_MAX
     else :
         timestep_size = max_timestep
-    bx = np.zeros((batch_size, timestep_size, WV_SIZE))
-    by = np.zeros((batch_size, 1), dtype = int)
+    num_list = list(range(len(x)))
     while 1 :
-        batch_num = random.sample(range(0, len(x)), batch_size)
-
-        for i, b in enumerate(batch_num) :
-            b_length = x[b].shape[1]
-            timestep = random.randint(1, min(b_length, timestep_size))
+        bx = np.zeros((batch_size, timestep_size, WV_SIZE))
+        by = np.zeros((batch_size, 1), dtype = int)
+        batch_num = random.sample(num_list, batch_size)
+        rands = np.random.randint(timestep_size, size = batch_size*2)
+        for i, b in enumerate(batch_num):
+            b_len = x[b].shape[1]
+            timestep = (rands[i*2]%(min(b_len, timestep_size)-1))+1
             # 'answer' indocate a index of data in the label list (count from 0)
             # a train-label[x] is the one-hot rep of train-data[x+1]
             # so, if answer == 5, the longest train data we can get is [0 : 6], which is 6 in length
             # it means for a timestep, the smallest answer is timestep - 1
-            answer = (timestep-1) if zero_offset else (random.randint(timestep, b_length)-1)
+            answer = (timestep-1) if zero_offset else int(rands[i*2+1]%(b_len-timestep+1))+(timestep-1)
             #try :
             # bx from -timestep to end because the last timestep cannot be zero vector
             # x[b]'s last == answer + 1 because it need to include [answer]
@@ -117,7 +117,7 @@ def sparse_categorical_perplexity(y_true, y_pred) :
 
 class OutputPrediction(Callback) :
     def on_epoch_end(self, epoch, logs={}) :
-        output_to_file(model, word_vectors, "output.txt", output_number = 4, max_output_length = OUTPUT_TIME_STEP)
+        output_to_file(model, word_vectors, "output.txt", output_number = OUTPUT_NUMBER, max_output_timestep = OUTPUT_TIMESTEP)
                 
 def lrate_epoch_decay(epoch) :
     init_lr = LEARNING_RATE
@@ -126,7 +126,7 @@ def lrate_epoch_decay(epoch) :
     
 lr_scheduler = LearningRateScheduler(lrate_epoch_decay)
 early_stop = EarlyStopping(monitor = "loss", min_delta = EARLYSTOP_MIN_DELTA, patience = EARLYSTOP_PATIENCE)
-model_checkpointer = ModelCheckpoint(SAVE_MODEL_NAME)
+model_checkpointer = ModelCheckpoint(SAVE_MODEL_NAME, save_best_only = True)
 pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
@@ -134,8 +134,8 @@ STEPS_PER_EPOCH = int(train_word_count // BATCH_SIZE * STEP_EPOCH_RATE)
 
 print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
 print("max time step: %s\nuse zero offest: %r\nrnn units: %s" % (MAX_TIMESTEP, ZERO_OFFSET, RNN_UNIT))
-print("\noptimizer: %s\nbatch size: %d\nstep per epoch: %d\nepoches: %d\nlearning_rate: %f" % (OPTIMIZER_NAME, BATCH_SIZE, STEPS_PER_EPOCH, EPOCHS, LEARNING_RATE))
-print("validation number:", VALIDATION_NUMBER, "\noutput number:", OUTPUT_NUMBER)
+print("\noptimizer: %s\nbatch size: %d\nstep per epoch: %d\nepoches: %d\nlearning_rate: %f\noutput number:%d" 
+    % (OPTIMIZER_NAME, BATCH_SIZE, STEPS_PER_EPOCH, EPOCHS, LEARNING_RATE, OUTPUT_NUMBER))
 
 if USE_SAVED_MODEL :
     model = load_model(SAVE_MODEL_NAME)
@@ -171,7 +171,8 @@ else :
         attention = Dense(1, activation = "softmax")(rnn_layer) # => (?, MAX_TIMESTEP, 1)
         print("attention:", rnn_layer.shape, "to", attention.shape)
         postproc_layer = Multiply()([attention, rnn_layer]) # => (?, MAX_TIMESTEP, last_rnn_units)
-        postproc_layer = Lambda(lambda x: K.sum(x, axis = 1))(postproc_layer) # => (?, last_rnn_units)
+        #postproc_layer = Activation(activations.tanh)(postproc_layer)
+        postproc_layer = Flatten()(postproc_layer) # => (?, (MAX_TIMESTEP*last_rnn_units))
     elif USE_SEQ_RNN_OUTPUT :
         postproc_layer = Flatten()(rnn_layer)
     else :
