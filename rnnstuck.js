@@ -89,16 +89,14 @@ async function generate() {
   
   var output_sentence = [SEED_INDEX[Math.floor(Math.random() * seedSize)]];
   var next_word = "", last_word = "";
-  
+  /*
   var time_static = [];
   var latest_dt = Date.now();
-  
+  */
   for (var i = 0; i < OUTPUT_MAX_TIMESTEP; i++) {
     tf.tidy(() => {
         var y_data = Array.from(model.predict(tf.tensor(sentence2vecs(output_sentence))).dataSync());
-        sampled_index = sample(y_data, SAMPLE_TEMPERATURE);
-        next_word = WORD_INDEX[sampled_index];
-        console.log(sampled_index, next_word);
+        next_word = WORD_INDEX[sample(y_data, SAMPLE_TEMPERATURE)];
     });
     if (next_word == END_MARK) break;
     //if (last_word == "\n" && next_word == "\n") continue;
@@ -107,13 +105,13 @@ async function generate() {
     time_static.push(Date.now() - latest_dt);
     latest_dt = Date.now();
   }
-  
+  /*
   var sum = 0;
   for (var i in time_static) {
     sum += time_static[i];
   }
   console.log("average loop time:", sum/time_static.length);
-
+  */
   gen_btn.disabled = false;
   gen_div.innerText = output_sentence.join("");
   gen_st.innerText = "";

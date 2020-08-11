@@ -2,9 +2,9 @@ import re
 import glob
 from gensim.models import word2vec
 
-W2V_BY_EACH_WORD = True
+W2V_BY_VOCAB = True
 
-if W2V_BY_EACH_WORD :
+if W2V_BY_VOCAB :
     model = word2vec.Word2Vec.load("./models/myword2vec_by_word.model")
 else :
     model = word2vec.Word2Vec.load("./models/myword2vec_by_char.model")
@@ -31,7 +31,7 @@ index_out.write("var VECTOR_INDEX = [")
 for i in range(model.wv.syn0.shape[0]) :
     word = model.wv.index2word[i];
     if i == 0 :
-        index_out.write("[" + ",".join(str(x) for x in model.wv[word]) + "]")
+        index_out.write("[" + ",".join([str(x) for x in model.wv[word]]) + "]")
     else :
         index_out.write(", " + "[" + ",".join([str(x) for x in model.wv[word]]) + "]")
 index_out.write("];")
