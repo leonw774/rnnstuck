@@ -58,3 +58,4 @@ for i, path in enumerate(cut_posts_paths) :
         else :
             seed_out.write(", " + "\"" + word + "\"")
 seed_out.write("];")
+print("seedindex done")
