@@ -53,7 +53,7 @@ function sample(prediction, temperature = 1.0) {
 
 function sentence2vecs(sentence) {
   var result = [];
-  var sentence_in = "";
+  var sentence_in = sentence;
   if (max_timestep != null) {
     if (sentence.length > max_timestep) {
       sentence_in = sentence.slice(sentence.length-max_timestep);
