@@ -1,6 +1,5 @@
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
@@ -18,13 +17,13 @@
   <script src="vectorindex.js"></script>
 </head>
 
-<body onload="" style="font-size: 16px; text-align: center; text-align: -webkit-center;">
+<body onload="load_model()" style="font-size: 16px; text-align: center; text-align: -webkit-center;">
   <h2>RNNStuck</h2>
   RNNStuck is inspired by Markovstuck.<br />
   <br />
   <div id="info-div">
   用zhhomestuck的文字資料來訓練類神經網路。因為技術與能力的限制，我只能產生純文字。<br />
-  最後更新: 2019/09/28<br />
+  最後更新: 2020/08/12<br />
   <br />
   <hr />
   神經網路使用Keras/Tensorflow建構<br />
@@ -34,14 +33,14 @@
   按下Load Model，將會載入並建立訓練好神經網路(<br />
   ※注意：有些系統可能不支援Tensorflowjs<br />
   </div><br />
-  <div id="output-div" style="font-weight: bold;">
-  </div>
-  <button id="load-btn" onclick="load_model();">Load Model</button><br/>
-  <br/>
+  <div id="model-status-div" style="font-weight: bold;">
+  </div><br />
   <button id="gen-btn" onclick="generate();" disabled="disabled">產生文字</button>
-  <div style="margin: 20px 25%; padding: 10px 8%; background-color: #eeeeee;">
-    <span id="gen-status"></span>
-    <div id="gen-div" style="font-family: 'Courier New', monospace; margin: 0 25px; padding: 0;">
+  <div style="max-width: 650px; padding: 0 10%;">
+    <div style=" margin: 20px; background-color: #eeeeee;">
+        <span id="gen-status"></span>
+        <div id="gen-div" style="font-family: 'Courier New', monospace; margin: 0 25px; padding: 0;">
+        </div>
     </div>
   </div>
   <script src="rnnstuck.js"></script>
