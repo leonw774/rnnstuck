@@ -102,8 +102,8 @@ async function generate() {
     //if (last_word == "\n" && next_word == "\n") continue;
     output_sentence.push(next_word);
     last_word = next_word;
-    time_static.push(Date.now() - latest_dt);
-    latest_dt = Date.now();
+    //time_static.push(Date.now() - latest_dt);
+    //latest_dt = Date.now();
   }
   /*
   var sum = 0;
