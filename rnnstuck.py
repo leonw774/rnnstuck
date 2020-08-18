@@ -2,18 +2,12 @@
 import re
 import sys
 import numpy as np
-import math
 import random
 import h5py
 from configure import *
 from train_w2v import *
-from generate import *
+from model import *
 from gensim.models import word2vec
-from keras import activations, optimizers
-from keras import backend as K
-from keras.models import Model, load_model
-from keras.callbacks import Callback, LearningRateScheduler, EarlyStopping, ModelCheckpoint
-from keras.layers import Activation, Bidirectional, Concatenate, CuDNNLSTM, Dense, Dropout, Embedding, Flatten, GRU, Input, Lambda, LSTM, Masking, Multiply, BatchNormalization, Permute, RepeatVector, Reshape, TimeDistributed
 
 # -1 : Use CPU; 0 or 1 : Use GPU
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
@@ -88,11 +82,11 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
         timestep_size = WORD_LENGTH_MAX
     else :
         timestep_size = max_timestep
-    num_list = list(range(len(x)))
+    list_len = len(x)
+    bx = np.zeros((batch_size, timestep_size, WV_SIZE))
+    by = np.zeros((batch_size, 1), dtype = int)
     while 1 :
-        bx = np.zeros((batch_size, timestep_size, WV_SIZE))
-        by = np.zeros((batch_size, 1), dtype = int)
-        batch_num = random.sample(num_list, batch_size)
+        batch_num = np.random.choice(list_len, size=batch_size)
         rands = np.random.randint(timestep_size, size = batch_size*2)
         for i, b in enumerate(batch_num):
             b_len = x[b].shape[1]
@@ -101,29 +95,21 @@ def generate_batch(x, y, max_timestep, batch_size, zero_offset) :
             # a train-label[x] is the one-hot rep of train-data[x+1]
             # so, if answer == 5, the longest train data we can get is [0 : 6], which is 6 in length
             # it means for a timestep, the smallest answer is timestep - 1
-            answer = (timestep-1) if zero_offset else int(rands[i*2+1]%(b_len-timestep+1))+(timestep-1)
+            answer = (timestep-1) if zero_offset else (timestep-1) + int(rands[i*2+1]%(b_len-timestep+1))
             #try :
             # bx from -timestep to end because the last timestep cannot be zero vector
             # x[b]'s last == answer + 1 because it need to include [answer]
             bx[i, : timestep] = x[b][:, answer-timestep+1 : answer+1]
+            bx[i, timestep:] = 0
             by[i] = y[b][:, answer]
             #except :
             #    print("Index Error:", (this_data_length, answer, timestep))
         yield bx, by
 
-### CALLBACK FUNCTIONS ###
-def sparse_categorical_perplexity(y_true, y_pred) :
-    return K.square(K.sparse_categorical_crossentropy(y_true, y_pred))
-
 class OutputPrediction(Callback) :
     def on_epoch_end(self, epoch, logs={}) :
-        output_to_file(model, word_vectors, "output.txt", output_number = OUTPUT_NUMBER, max_output_timestep = OUTPUT_TIMESTEP)
-                
-def lrate_epoch_decay(epoch) :
-    init_lr = LEARNING_RATE
-    e = min(LR_DECAY_POW_MAX, (epoch + 1) // LR_DECAY_INTV) # INTV epoches per decay, with max e
-    return init_lr * math.pow(LR_DECAY, e)
-    
+        output_to_file(SAVE_MODEL_NAME, word_vectors, "output.txt", output_number = OUTPUT_NUMBER, max_output_timestep = OUTPUT_TIMESTEP)
+
 lr_scheduler = LearningRateScheduler(lrate_epoch_decay)
 early_stop = EarlyStopping(monitor = "loss", min_delta = EARLYSTOP_MIN_DELTA, patience = EARLYSTOP_PATIENCE)
 model_checkpointer = ModelCheckpoint(SAVE_MODEL_NAME, save_best_only = True)
@@ -131,65 +117,13 @@ pred_outputer = OutputPrediction()
 
 ### NETWORK MODEL ###
 STEPS_PER_EPOCH = int(train_word_count // BATCH_SIZE * STEP_EPOCH_RATE)
+print("step per epoch: %d\n" % STEPS_PER_EPOCH)
 
-print("\nUSE_SAVED_MODEL:", USE_SAVED_MODEL)
-print("max time step: %s\nuse zero offest: %r\nrnn units: %s" % (MAX_TIMESTEP, ZERO_OFFSET, RNN_UNIT))
-print("\noptimizer: %s\nbatch size: %d\nstep per epoch: %d\nepoches: %d\nlearning_rate: %f\noutput number:%d" 
-    % (OPTIMIZER_NAME, BATCH_SIZE, STEPS_PER_EPOCH, EPOCHS, LEARNING_RATE, OUTPUT_NUMBER))
-
-if USE_SAVED_MODEL :
-    model = load_model(SAVE_MODEL_NAME)
-else :
-    sgd = optimizers.SGD(lr = LEARNING_RATE, momentum = 0.5, nesterov = True)
-    rmsprop = optimizers.RMSprop(lr = LEARNING_RATE)
-    adam = optimizers.Adam(lr = LEARNING_RATE)
-    
-    if OPTIMIZER_NAME == "sgd" :
-        optier = sgd
-    elif OPTIMIZER_NAME == "rmsprop" :
-        optier = rmsprop
-    elif OPTIMIZER_NAME == "adam" :
-        optier = adam
-    
-    ## make model
-    input_layer = Input([MAX_TIMESTEP, WV_SIZE])
-    rnn_layer = input_layer
-    
-    for i, v in enumerate(RNN_UNIT) :
-        is_return_seq = (i != len(RNN_UNIT) - 1) or USE_ATTENTION or USE_SEQ_RNN_OUTPUT
-        if USE_BIDIRECTION :
-            if USE_CUDNN :
-                rnn_layer = Bidirectional(CuDNNLSTM(v, return_sequences = is_return_seq))(rnn_layer)
-            else :
-                rnn_layer = Bidirectional(LSTM(v, return_sequences = is_return_seq))(rnn_layer)
-        else :
-            if USE_CUDNN :
-                rnn_layer = CuDNNLSTM(v, return_sequences = is_return_seq)(rnn_layer)
-            else :
-                rnn_layer = LSTM(v, return_sequences = is_return_seq)(rnn_layer)
-    if USE_ATTENTION and MAX_TIMESTEP :
-        attention = Dense(1, activation = "softmax")(rnn_layer) # => (?, MAX_TIMESTEP, 1)
-        print("attention:", rnn_layer.shape, "to", attention.shape)
-        postproc_layer = Multiply()([attention, rnn_layer]) # => (?, MAX_TIMESTEP, last_rnn_units)
-        #postproc_layer = Activation(activations.tanh)(postproc_layer)
-        postproc_layer = Flatten()(postproc_layer) # => (?, (MAX_TIMESTEP*last_rnn_units))
-    elif USE_SEQ_RNN_OUTPUT :
-        postproc_layer = Flatten()(rnn_layer)
-    else :
-        postproc_layer = rnn_layer
-    postproc_layer = Dropout(0.2)(postproc_layer)
-    guess = Dense(VOCAB_SIZE, activation = "softmax")(postproc_layer)
-    model = Model(input_layer, guess)
-    model_train = model
-    model_train.compile(
-        loss = "sparse_categorical_crossentropy", #sparse_categorical_perplexity,
-        optimizer = optier,
-        metrics = ["sparse_categorical_accuracy"])
+model = rnnstuck_model(VOCAB_SIZE)
 
 gen_train = generate_batch(train_data_list, label_data_list, MAX_TIMESTEP, BATCH_SIZE, ZERO_OFFSET)
 gen_test = generate_batch(test_data_list, test_label_data_list, MAX_TIMESTEP, BATCH_SIZE, True)
-model_train.summary()
-model_train.fit_generator(generator = gen_train,
+model.fit_generator(generator = gen_train,
                     steps_per_epoch = STEPS_PER_EPOCH, 
                     epochs = EPOCHS, 
                     verbose = 1,

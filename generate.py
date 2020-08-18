@@ -57,7 +57,8 @@ def predict_output_sentence(predict_model, word_vectors, max_output_timestep, se
     output_sentence += "\n"
     return output_sentence
 
-def output_to_file(predict_model, word_vectors, filename, output_number = 1, max_output_timestep = 100) :
+def output_to_file(predict_model_name, word_vectors, filename, output_number = 1, max_output_timestep = 100):
+    predict_model = load_model(predict_model_name)
     seed_post_list, c = get_train_data(page_amount = OUTPUT_NUMBER, word_max = 2)
     outfile = open(filename, "w+", encoding = "utf-8-sig")
     for seed_post in seed_post_list:
@@ -66,14 +67,10 @@ def output_to_file(predict_model, word_vectors, filename, output_number = 1, max
         outfile.write(">>>>>>>>\n")
     outfile.close()
 
-if __name__ == "__main__" :
-    model = load_model("./models/rnnstuck_model.h5")
-    outfile = open("output-generate.txt", "w+", encoding = "utf-8-sig")
-
+if __name__ == "__main__":
     word_model = word2vec.Word2Vec.load(W2V_MODEL_NAME)
     word_vectors = word_model.wv
     del word_model
-    OUTPUT_NUMBER = 8
     print("MAX_TIMESTEP", model.layers[0].input_shape[1])
-    output_to_file(model, word_vectors, "output-generate.txt", 4, 200)
+    output_to_file("./models/rnnstuck_model.h5", word_vectors, "output-generate.txt", OUTPUT_NUMBER, OUTPUT_TIMESTEP)
 

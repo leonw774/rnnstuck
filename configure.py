@@ -1,7 +1,7 @@
 # fetch posts
 WORD_LENGTH_MAX = 800 # set None to be unlimited
 WORD_LENGTH_MIN = 12
-LINE_LENGTH_MAX = 64
+LINE_LENGTH_MAX = 100
 LINE_LENGTH_MIN = 2
 
 # w2v setting
@@ -13,7 +13,7 @@ USE_ENDING_MARK = True
 ENDING_MARK = 'ê'
 W2V_MIN_COUNT = 8 if W2V_BY_VOCAB else 4
 W2V_ITER = 4
-WV_SIZE = 64
+WV_SIZE = 48
 
 # training data configure
 ZERO_OFFSET = False
@@ -29,7 +29,7 @@ USE_SEQ_RNN_OUTPUT = True
 USE_ATTENTION = True
 VOCAB_SIZE = -1
 BATCH_SIZE = 256
-EPOCHS = 36
+EPOCHS = 48
 VALIDATION_SPLIT = 12
 
 OUTPUT_NUMBER = 4
