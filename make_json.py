@@ -10,7 +10,7 @@ else :
     model = word2vec.Word2Vec.load("./models/myword2vec_by_char.model")
     
 ### VOCAB INDEX ###
-index_out = open("wordindex.js", "w+", encoding = 'utf-8-sig')
+index_out = open("words.js", "w+", encoding = 'utf-8-sig')
 index_out.write("var WORD_INDEX = [")
 for i in range(model.wv.syn0.shape[0]) :
     word = model.wv.index2word[i];
@@ -23,29 +23,34 @@ for i in range(model.wv.syn0.shape[0]) :
     else :
         index_out.write(", \"" + word + "\"")
 index_out.write("];")
-print("wordindex done")
+print("words done")
 
 ### VECTOR INDEX ###
-index_out = open("vectorindex.js", "w+", encoding = 'utf-8-sig')
-index_out.write("var VECTOR_INDEX = [")
+index_out = open("vectors.js", "w+", encoding = 'utf-8-sig')
+index_out.write("var VECTOR_DICT = {")
 for i in range(model.wv.syn0.shape[0]) :
     word = model.wv.index2word[i];
-    if i == 0 :
-        index_out.write("[" + ",".join([str(x) for x in model.wv[word]]) + "]")
+    printed_word = ""
+    if word == '\\' or word == '\"' or word == '\/':
+        printed_word = '\\' + word
+    if word == '\n':
+        printed_word = '\\n'
+    if i == 0:
+        index_out.write("\"" + printed_word + "\":[" + ",".join([str(x) for x in model.wv[word]]) + "]")
     else :
-        index_out.write(", " + "[" + ",".join([str(x) for x in model.wv[word]]) + "]")
-index_out.write("];")
-print("vectorindex done")
+        index_out.write(", \"" + printed_word + "\":[" + ",".join([str(x) for x in model.wv[word]]) + "]")
+index_out.write("};")
+print("vectors done")
 
 ### SEED ###
-seed_out = open("seedindex.js", "w+", encoding = 'utf-8-sig')
+seed_out = open("seeds.js", "w+", encoding = 'utf-8-sig')
 cut_posts_paths = glob.glob(r"cut_posts/*.txt")
 
 seed_out.write("var SEED_INDEX = [")
 for i, path in enumerate(cut_posts_paths) :
     line = open(path, 'r', encoding = 'utf-8-sig').readline()
     line = (re.sub("= = >", "==>", (re.sub("= = = = = = >", "======>", line))))
-    if W2V_BY_EACH_WORD :
+    if W2V_BY_VOCAB :
         line = line.split()
     if len(line) > 0 :
         word = line[0]
@@ -58,4 +63,4 @@ for i, path in enumerate(cut_posts_paths) :
         else :
             seed_out.write(", " + "\"" + word + "\"")
 seed_out.write("];")
-print("seedindex done")
+print("seeds done")
