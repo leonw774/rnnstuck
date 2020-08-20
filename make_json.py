@@ -27,7 +27,7 @@ print("words done")
 
 ### VECTOR INDEX ###
 index_out = open("vectors.js", "w+", encoding = 'utf-8-sig')
-index_out.write("var VECTOR_DICT = {")
+index_out.write("var SEED_INDEX = {")
 for i in range(model.wv.syn0.shape[0]) :
     word = model.wv.index2word[i];
     printed_word = ""
