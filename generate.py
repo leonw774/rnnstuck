@@ -4,18 +4,19 @@ import h5py
 import numpy as np
 from configure import *
 from train_w2v import * 
-from keras.models import load_model
+from tensorflow.keras.models import load_model
 from gensim.models import word2vec
 
 def make_input_matrix_for_generate(word_list, word_vectors, max_timestep = None) :
     if max_timestep : # only keep last few words if has max_timestep
         if len(word_list) > max_timestep :
-            word_list = word_list[ -max_timestep : ]
-        input_matrix = np.zeros([1, max_timestep, word_vectors.syn0.shape[1]])
+            word_list = word_list[-max_timestep:]
+        timestep_size = max_timestep
     else :
-        input_matrix = np.zeros([1, len(word_list), word_vectors.syn0.shape[1]])
+        timestep_size = len(word_list)
+    input_matrix = np.zeros([1, timestep_size, word_vectors.vectors.shape[1]])
     
-    in_counter = 0 if USE_START_MARK else 1
+    in_counter = 0
     
     for word in word_list :
         if word in word_vectors :
@@ -45,7 +46,7 @@ def predict_output_sentence(predict_model, word_vectors, max_output_timestep, se
     else :
         output_sentence = ""
     for n in range(max_output_timestep) :
-        input_array = make_input_matrix_for_generate(output_sentence, word_vectors, max_timestep = predict_model.layers[0].input_shape[1])
+        input_array = make_input_matrix_for_generate(output_sentence, word_vectors, max_timestep = predict_model.layers[0].input_shape[0][1])
         y_test = predict_model.predict(input_array)
         y_test = sample(y_test[0], OUTPUT_SAMPLE_TEMPERATURE)
         next_word = word_vectors.wv.index2word[np.argmax(y_test[0])]
@@ -57,7 +58,10 @@ def predict_output_sentence(predict_model, word_vectors, max_output_timestep, se
     output_sentence += "\n"
     return output_sentence
 
-def output_to_file(predict_model_name, word_vectors, filename, output_number = 1, max_output_timestep = 100):
+def output_to_file(predict_model_name, filename, output_number = 1, max_output_timestep = 100):
+    word_model = word2vec.Word2Vec.load(W2V_MODEL_NAME)
+    word_vectors = word_model.wv
+    del word_model
     predict_model = load_model(predict_model_name)
     seed_post_list, c = get_train_data(page_amount = OUTPUT_NUMBER, word_max = 2)
     outfile = open(filename, "w+", encoding = "utf-8-sig")
@@ -68,9 +72,6 @@ def output_to_file(predict_model_name, word_vectors, filename, output_number = 1
     outfile.close()
 
 if __name__ == "__main__":
-    word_model = word2vec.Word2Vec.load(W2V_MODEL_NAME)
-    word_vectors = word_model.wv
-    del word_model
     print("MAX_TIMESTEP", model.layers[0].input_shape[1])
-    output_to_file("./models/rnnstuck_model.h5", word_vectors, "output-generate.txt", OUTPUT_NUMBER, OUTPUT_TIMESTEP)
+    output_to_file("./models/rnnstuck_model.h5", "output-generate.txt", OUTPUT_NUMBER, OUTPUT_TIMESTEP)
 

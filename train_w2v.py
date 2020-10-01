@@ -35,7 +35,6 @@ def get_train_data(page_amount = None, word_min = 1, word_max = None, line_min =
     pagename_list = PAGENAME_LIST[SAMPLE_BEGIN : SAMPLE_END]
     if page_amount:
         pagename_list = random.sample(PAGENAME_LIST[SAMPLE_BEGIN : SAMPLE_END], page_amount)
-    print("fetching posts...")
     
     for _, pagename in enumerate(pagename_list) :
         line_list = open(USED_PATH + pagename, 'r', encoding = 'utf-8-sig').readlines()
